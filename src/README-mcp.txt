@@ -1,5 +1,5 @@
-AgentParcel MCP server  (version @@ZS_VERSION@@)  -  formerly ZipSplitter  -  https://agentparcel.net
-===================================================================================================
+AgentParcel MCP server  (version @@ZS_VERSION@@)  -  https://agentparcel.net
+============================================================================
 Lets AI agents (Claude Desktop, Claude Code, Cursor, Codex CLI, ...) that hit a file-upload
 size limit split big zips / files / folders into standalone .zip parts under the limit, and
 rebuild the original from the parts - by calling tools instead of writing their own scripts.
@@ -28,8 +28,9 @@ TOOLS
 OPTIONAL SANDBOX
   Set AGENTPARCEL_MCP_ROOTS to the folders the server may read and write (separate several with
   ";" on Windows, ":" on Mac/Linux). Paths outside are refused. The snippets below allow your
-  user folder; remove the "env" part to allow everything. The old name ZIPSPLITTER_MCP_ROOTS
-  still works when AGENTPARCEL_MCP_ROOTS is not set.
+  user folder; remove the "env" part to allow everything. The compatibility fallback
+  ZIPSPLITTER_MCP_ROOTS still works when AGENTPARCEL_MCP_ROOTS is not set. It remains
+  only for backward compatibility (ZipSplitter was the internal working name).
 
 LONG JOBS
   Big splits can take minutes. The server sends progress notifications when the client asks, but

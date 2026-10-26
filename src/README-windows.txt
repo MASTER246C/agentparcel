@@ -1,5 +1,5 @@
-AgentParcel  (version @@ZS_VERSION@@)  -  formerly ZipSplitter  -  https://agentparcel.net
-=========================================================================================
+AgentParcel  (version @@ZS_VERSION@@)  -  https://agentparcel.net
+=================================================================
 Splits one big .zip into smaller .zip files of at most 19.5 MB each
 (19.5 x 1024 x 1024 = 20,447,232 bytes), and rebuilds the original zip from them.
 Every part is a normal zip that also opens on its own.
@@ -71,10 +71,11 @@ NOTES
 ==========================================================================================
 MANIFEST FORMAT (version 1) - for other implementations (macOS / Linux builds)
 ==========================================================================================
-AgentParcel was called ZipSplitter until 3.3.0. The file names (_zipsplitter_part.json,
-_zipsplitter_manifest.json, _zipsplitter_apps.json) and the "zipsplitter-*" format ids below
-are kept unchanged on purpose: ZipSplitter 3.x can rebuild AgentParcel parts, and AgentParcel
-rebuilds parts from every ZipSplitter version.
+ZipSplitter was the internal working name during development.
+The file names (_zipsplitter_part.json, _zipsplitter_manifest.json, _zipsplitter_apps.json)
+and the "zipsplitter-*" format ids below are kept unchanged on purpose, only for backward
+compatibility: development builds can rebuild AgentParcel parts, and AgentParcel rebuilds
+parts from those builds.
 All JSON files are UTF-8; AgentParcel writes pure ASCII (non-ASCII chars as \uXXXX escapes).
 All paths are zip entry names exactly as stored (normally "/" separated, dirs end in "/").
 Times are the zip entry's local wall-clock time, "yyyy-MM-dd HH:mm:ss" (no time zone).
@@ -133,5 +134,5 @@ Times are the zip entry's local wall-clock time, "yyyy-MM-dd HH:mm:ss" (no time 
    mac/ (agentparcel.py, AgentParcel.command - mode 755, README.txt) and
    linux/ (agentparcel.py, agentparcel.sh - mode 755, agentparcel.desktop, README.txt) and
    mcp/ (agentparcel_mcp.py, agentparcel.py - mode 755, README.txt: the MCP server for AI agents).
-   Rebuild skips any zip named AgentParcel-apps*.zip or ZipSplitter-apps*.zip (the old name),
-   or containing _zipsplitter_apps.json.
+   Rebuild skips any zip named AgentParcel-apps*.zip or ZipSplitter-apps*.zip
+   (the bundle name from development builds), or containing _zipsplitter_apps.json.

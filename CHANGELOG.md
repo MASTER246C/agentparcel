@@ -1,20 +1,20 @@
-# AgentParcel changelog (formerly ZipSplitter)
+# AgentParcel changelog
 
-Project site: https://agentparcel.net. Entries before 3.3.1 use the old name.
+Project site: https://agentparcel.net.
+
+ZipSplitter was our internal working name during development. Before the public release we researched it, found another existing project already using that name, and switched to AgentParcel. Entries before 3.3.1 still use that working name for the files from those builds. The `_zipsplitter_*` marker files and the `ZIPSPLITTER_*` environment-variable fallbacks remain only for backward compatibility.
 
 ## 3.3.1 - 2026-10-25
-- **Renamed from ZipSplitter to AgentParcel.**
+- **Public release name is AgentParcel.** ZipSplitter was the internal working name. Before release we researched it, found another existing project already using that name, and switched.
   - Files: AgentParcel.ps1, AgentParcel.bat, agentparcel.py, agentparcel_mcp.py, AgentParcel.command,
     agentparcel.sh, agentparcel.desktop, Install-Python-for-AgentParcel.bat.
   - Release zips are AgentParcel-<ver>-<platform>.zip, and the apps bundle is AgentParcel-apps.zip.
-  - The MCP server name is `agentparcel`. The env vars are AGENTPARCEL_MCP_ROOTS / AGENTPARCEL_PY; the old
-    ZIPSPLITTER_MCP_ROOTS / ZIPSPLITTER_PY still work.
-  - The license is now AgentParcel License 1.0, with a refined Equal Tier Availability clause: it covers
+  - The MCP server name is `agentparcel`. The env vars are AGENTPARCEL_MCP_ROOTS / AGENTPARCEL_PY.
+    ZIPSPLITTER_MCP_ROOTS / ZIPSPLITTER_PY remain as fallbacks for backward compatibility only.
+  - The license for the public release is AgentParcel License 1.0, with a refined Equal Tier Availability clause: it covers
     every tier with the Prerequisite Capability (e.g. MCP/tool access), and usage limits may be no stricter
     than for comparable tools.
-- Compatible both ways. The part format is unchanged, and the `_zipsplitter_*` label files are kept.
-  AgentParcel rebuilds all ZipSplitter part sets and ignores ZipSplitter-apps.zip, and ZipSplitter 3.x
-  rebuilds AgentParcel parts.
+- The part format is unchanged. The `_zipsplitter_*` label files are kept only for backward compatibility, so parts from the development builds still rebuild, and those builds still rebuild AgentParcel parts. AgentParcel ignores a development `ZipSplitter-apps.zip`, and those older builds ignore `AgentParcel-apps.zip`.
 - AgentParcel-apps.zip (the bundle written next to the parts) now includes LICENSE.txt, from both the
   Windows and the Mac/Linux program.
 - New neon AgentParcel icon and wordmark.

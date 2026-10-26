@@ -34,6 +34,8 @@ The default cap is **19.5 MiB** per part (19.5 × 1024 × 1024 = 20,447,232 byte
 >
 > — Chris Kalkowski
 
+During development the working name was ZipSplitter. That stayed internal. See [About the name](#about-the-name).
+
 ## Downloads
 
 Get the tested packages from the [Releases](https://github.com/MASTER246C/agentparcel/releases) page. Current release: **[AgentParcel 3.3.1](https://github.com/MASTER246C/agentparcel/releases/tag/v3.3.1)**.
@@ -125,7 +127,7 @@ python3 agentparcel.py --join ~/Downloads/big_split --output-dir ~/Desktop
 
 Paths must be absolute. The server never overwrites or deletes a file; a name that is taken gets ` (2)`. An agent receives the apps bundle only when it passes `include_apps=true`.
 
-Optional sandbox: set `AGENTPARCEL_MCP_ROOTS` to the folders the server may read and write (`;` on Windows, `:` on Mac and Linux). The old name `ZIPSPLITTER_MCP_ROOTS` still works when the new one is unset. Remove `env` from a snippet to allow every path.
+Optional sandbox: set `AGENTPARCEL_MCP_ROOTS` to the folders the server may read and write (`;` on Windows, `:` on Mac and Linux). `ZIPSPLITTER_MCP_ROOTS` is still accepted when `AGENTPARCEL_MCP_ROOTS` is unset, only as a backward-compatible fallback from the internal working name. Remove `env` from a snippet to allow every path.
 
 Big splits can take minutes. Codex CLI's `tool_timeout_sec` defaults to 60; the snippet below sets 1800. For Claude Code, set `MCP_TOOL_TIMEOUT=1800000` (milliseconds) before starting it.
 
@@ -178,14 +180,13 @@ python3 mcp/agentparcel_mcp.py --version
 python3 mcp/agentparcel_mcp.py --list-tools
 ```
 
-## Formerly ZipSplitter
+## About the name
 
-AgentParcel is the new name of ZipSplitter (the rename is version 3.3.1). The part format is unchanged, and the on-disk `_zipsplitter_*` label files are kept on purpose:
+ZipSplitter was our internal working name during development. Before release we researched it, found another existing project already using that name, and switched to AgentParcel for the public release.
 
-- AgentParcel rebuilds every ZipSplitter part set, and it ignores a `ZipSplitter-apps.zip` that is sitting with the parts.
-- ZipSplitter 3.x rebuilds AgentParcel parts, and it ignores `AgentParcel-apps.zip`.
+Leftover internal identifiers remain only for backward compatibility. The `_zipsplitter_*` marker files in each part set, and the `ZIPSPLITTER_*` environment-variable fallbacks (they apply when the matching `AGENTPARCEL_*` variable is unset), are the ones you will still see. Parts made during development still rebuild, and those older builds still rebuild AgentParcel parts. A development apps bundle is named `ZipSplitter-apps.zip`; AgentParcel ignores it, and those older builds ignore `AgentParcel-apps.zip`.
 
-The MCP server is now named `agentparcel` (`agentparcel_mcp.py`). `AGENTPARCEL_MCP_ROOTS` replaces `ZIPSPLITTER_MCP_ROOTS`; the old variable still works. Point your agent config at the new script.
+Point an agent config at `agentparcel_mcp.py`. The server name in the snippets is `agentparcel`.
 
 ## From this repository
 
@@ -198,7 +199,7 @@ The MCP server is now named `agentparcel` (`agentparcel_mcp.py`). `AGENTPARCEL_M
 | `make_assets.py` | Regenerates `src/assets/` from the neon source images. |
 | `tk-window-agentparcel-icon.png` | Screenshot of the window. |
 | `LICENSE.txt` | AgentParcel License 1.0. |
-| `CHANGELOG.md` | History, including the ZipSplitter years. |
+| `CHANGELOG.md` | History. Entries before 3.3.1 use the internal working name. |
 
 ```sh
 python3 build.py

@@ -1,6 +1,6 @@
 # AgentParcel @@ZS_VERSION@@ - release notes
 
-*AgentParcel is the new name of ZipSplitter. Project site: https://agentparcel.net*
+*Project site: https://agentparcel.net. ZipSplitter was the internal working name during development; the public release is AgentParcel.*
 
 | Package | Platform | Status |
 |---|---|---|
@@ -12,12 +12,10 @@ Check a download:  `sha256sum -c SHA256SUMS.txt` (Linux), `shasum -a 256 -c SHA2
 `Get-FileHash .\AgentParcel-@@ZS_VERSION@@-windows.zip` (Windows PowerShell).
 
 ## What's new
-- **3.3.1: renamed ZipSplitter -> AgentParcel.** New file names: AgentParcel.ps1/.bat, agentparcel.py,
+- **3.3.1: the public name is AgentParcel.** ZipSplitter was our internal working name. Before release we researched it, found another existing project already using that name, and switched to AgentParcel. New file names: AgentParcel.ps1/.bat, agentparcel.py,
   agentparcel_mcp.py, AgentParcel.command, agentparcel.sh, agentparcel.desktop, Install-Python-for-AgentParcel.bat,
-  AgentParcel-apps.zip. MCP server name `agentparcel`, env var `AGENTPARCEL_MCP_ROOTS` (old `ZIPSPLITTER_MCP_ROOTS` still accepted).
-- Fully compatible both ways: AgentParcel rebuilds every ZipSplitter part set and ignores ZipSplitter-apps.zip;
-  ZipSplitter 3.x rebuilds AgentParcel parts and ignores AgentParcel-apps.zip (the on-disk `_zipsplitter_*` label
-  file names are unchanged on purpose).
+  AgentParcel-apps.zip. MCP server name `agentparcel`, env var `AGENTPARCEL_MCP_ROOTS` (`ZIPSPLITTER_MCP_ROOTS` is still accepted, only as a compatibility fallback).
+- Parts from development builds still rebuild, and those builds still rebuild AgentParcel parts. AgentParcel ignores `ZipSplitter-apps.zip`; those older builds ignore `AgentParcel-apps.zip`. The on-disk `_zipsplitter_*` marker file names are unchanged on purpose, for backward compatibility only.
 - 3.3.1: AgentParcel-apps.zip (the bundle sent with the parts) now includes LICENSE.txt.
 - One package per platform, each with an `mcp/` folder (an MCP server for AI agents, with config
   snippets for Claude Desktop, Claude Code, Cursor and Codex CLI that fit that platform).
@@ -27,8 +25,8 @@ Check a download:  `sha256sum -c SHA256SUMS.txt` (Linux), `shasum -a 256 -c SHA2
 - The part format has not changed. Parts made with 3.x on any platform rebuild on any other.
 
 ## Known limits / open items
-- Old ZipSplitter 3.x only recognises `AgentParcel-apps.zip` by its marker file. If someone picks the bundle
-  plus only *some* parts by hand in an old ZipSplitter, it can wrongly report missing parts. Choosing the folder,
+- Development builds that still used the ZipSplitter working name only recognise `AgentParcel-apps.zip` by its marker file. If someone picks the bundle
+  plus only *some* parts by hand in one of those older builds, it can wrongly report missing parts. Choosing the folder,
   any single part, or all parts works. AgentParcel itself recognises both bundle names.
 - macOS package: not yet run on a Mac (Gatekeeper prompts, the Tk look and the pkg install path are unverified).
 - The Windows Python installer helper was syntax-checked but not run on a real PC.

@@ -1,5 +1,5 @@
-AgentParcel for macOS and Linux  (version @@ZS_VERSION@@)  -  formerly ZipSplitter
-===================================================================================
+AgentParcel for macOS and Linux  (version @@ZS_VERSION@@)
+=========================================================
 Project site: https://agentparcel.net
 Same program as the Windows version (AgentParcel.ps1), written in Python 3.
 Parts made on Windows can be rebuilt on Mac/Linux and the other way round - both

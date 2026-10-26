@@ -5,7 +5,7 @@
 
 # AgentParcel @@ZS_VERSION@@ for Windows
 
-*Formerly **ZipSplitter**. Project site: https://agentparcel.net*
+*Project site: https://agentparcel.net*
 
 Splits a big `.zip` into smaller standalone zips (19.5 MB each by default) and rebuilds the original
 from them, checking it with SHA-256. Parts made on Windows, Mac or Linux rebuild on any of them.
@@ -78,9 +78,5 @@ because of its Equal Tier Availability condition. In plain English:
 Project site: https://agentparcel.net
 Licensing questions and permissions: https://chriskalkowski.com
 
-## Coming from ZipSplitter?
-AgentParcel is the new name of ZipSplitter. Parts, manifests and apps bundles made by any ZipSplitter
-version rebuild with AgentParcel, and ZipSplitter 3.x can rebuild parts made by AgentParcel (the internal
-`_zipsplitter_*` label files are kept for that). MCP: the server is now `agentparcel_mcp.py` and the
-server name in the snippets is `agentparcel`. `AGENTPARCEL_MCP_ROOTS` replaces `ZIPSPLITTER_MCP_ROOTS`,
-but the old variable still works. Update the path in your agent config.
+## About the name
+ZipSplitter was our internal working name during development. Before release we researched it, found another existing project already using that name, and switched to AgentParcel for the public release. Leftover internal identifiers remain only for backward compatibility: the `_zipsplitter_*` marker files, and the `ZIPSPLITTER_*` environment-variable fallbacks (`ZIPSPLITTER_MCP_ROOTS` still works when `AGENTPARCEL_MCP_ROOTS` is unset). Parts made during development still rebuild, and those older builds still rebuild AgentParcel parts. The MCP server to configure is `agentparcel_mcp.py` (server name `agentparcel`).
