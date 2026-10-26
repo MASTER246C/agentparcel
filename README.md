@@ -34,7 +34,7 @@ The default cap is **19.5 MiB** per part (19.5 × 1024 × 1024 = 20,447,232 byte
 >
 > — Chris Kalkowski
 
-During development the working name was ZipSplitter. That stayed internal. See [About the name](#about-the-name).
+During development the working name was ZipSplitter. AgentParcel is an independent project. It is not affiliated with, endorsed by, or derived from any other project named ZipSplitter, and it does not use any of that project's code. See [About the name](#about-the-name).
 
 ## Downloads
 
@@ -127,7 +127,7 @@ python3 agentparcel.py --join ~/Downloads/big_split --output-dir ~/Desktop
 
 Paths must be absolute. The server never overwrites or deletes a file; a name that is taken gets ` (2)`. An agent receives the apps bundle only when it passes `include_apps=true`.
 
-Optional sandbox: set `AGENTPARCEL_MCP_ROOTS` to the folders the server may read and write (`;` on Windows, `:` on Mac and Linux). `ZIPSPLITTER_MCP_ROOTS` is still accepted when `AGENTPARCEL_MCP_ROOTS` is unset, only as a backward-compatible fallback from the internal working name. Remove `env` from a snippet to allow every path.
+Optional sandbox: set `AGENTPARCEL_MCP_ROOTS` to the folders the server may read and write (`;` on Windows, `:` on Mac and Linux). `ZIPSPLITTER_MCP_ROOTS` is still accepted when `AGENTPARCEL_MCP_ROOTS` is unset. That fallback comes from our own development builds, not from any other project named ZipSplitter. See [About the name](#about-the-name). Remove `env` from a snippet to allow every path.
 
 Big splits can take minutes. Codex CLI's `tool_timeout_sec` defaults to 60; the snippet below sets 1800. For Claude Code, set `MCP_TOOL_TIMEOUT=1800000` (milliseconds) before starting it.
 
@@ -184,7 +184,9 @@ python3 mcp/agentparcel_mcp.py --list-tools
 
 ZipSplitter was our internal working name during development. Before release we researched it, found another existing project already using that name, and switched to AgentParcel for the public release.
 
-Leftover internal identifiers remain only for backward compatibility. The `_zipsplitter_*` marker files in each part set, and the `ZIPSPLITTER_*` environment-variable fallbacks (they apply when the matching `AGENTPARCEL_*` variable is unset), are the ones you will still see. Parts made during development still rebuild, and those older builds still rebuild AgentParcel parts. A development apps bundle is named `ZipSplitter-apps.zip`; AgentParcel ignores it, and those older builds ignore `AgentParcel-apps.zip`.
+AgentParcel is an independent project. It is not affiliated with, endorsed by, or derived from any other project named ZipSplitter, and it does not use any of that project's code. ZipSplitter was only our internal working name; all AgentParcel code was written from scratch for this project.
+
+Leftover `_zipsplitter_*` marker files and `ZIPSPLITTER_*` environment-variable fallbacks come from our own development builds, not from that other project. They remain only for backward compatibility. The markers (`_zipsplitter_part.json`, `_zipsplitter_manifest.json`, `_zipsplitter_apps.json`) stay in each part set, and `ZIPSPLITTER_MCP_ROOTS` / `ZIPSPLITTER_PY` still apply when the matching `AGENTPARCEL_*` variable is unset. Parts from those builds still rebuild, and those builds still rebuild AgentParcel parts. A development apps bundle is named `ZipSplitter-apps.zip`; AgentParcel ignores it, and those older builds ignore `AgentParcel-apps.zip`.
 
 Point an agent config at `agentparcel_mcp.py`. The server name in the snippets is `agentparcel`.
 

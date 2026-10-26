@@ -28,9 +28,13 @@ TOOLS
 OPTIONAL SANDBOX
   Set AGENTPARCEL_MCP_ROOTS to the folders the server may read and write (separate several with
   ";" on Windows, ":" on Mac/Linux). Paths outside are refused. The snippets below allow your
-  user folder; remove the "env" part to allow everything. The compatibility fallback
-  ZIPSPLITTER_MCP_ROOTS still works when AGENTPARCEL_MCP_ROOTS is not set. It remains
-  only for backward compatibility (ZipSplitter was the internal working name).
+  user folder; remove the "env" part to allow everything. ZIPSPLITTER_MCP_ROOTS still
+  works when AGENTPARCEL_MCP_ROOTS is not set. That fallback comes from our own
+  development builds, not from any other project named ZipSplitter.
+  AgentParcel is an independent project. It is not affiliated with, endorsed by, or
+  derived from any other project named ZipSplitter, and it does not use any of that
+  project's code. ZipSplitter was only our internal working name; all AgentParcel code
+  was written from scratch for this project.
 
 LONG JOBS
   Big splits can take minutes. The server sends progress notifications when the client asks, but
