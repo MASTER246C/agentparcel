@@ -23,7 +23,7 @@ Tester: ________  Mac model / chip: ________  macOS version: ________  Date: ___
 - [ ] CLI split and `--join` work in Terminal
 
 ## MCP
-- [ ] `/usr/local/bin/python3 mcp/agentparcel_mcp.py --list-tools` (or the Homebrew path) lists 7 tools (inspect, split_zip, split_any_file, split_files, verify, rebuild, make_apps_bundle)
+- [ ] `/usr/local/bin/python3 mcp/agentparcel_mcp.py --list-tools` (or the Homebrew path) lists 8 tools (inspect, split_zip, split_any_file, split_files, verify, regenerate_parts, rebuild, make_apps_bundle)
 - [ ] Claude Desktop config snippet from `mcp/README-mcp.txt`: after a restart, the agentparcel tools appear and a split works
 - [ ] Optional: Claude Code / Cursor / Codex snippet
 

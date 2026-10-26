@@ -19,7 +19,7 @@ Tester: ________  Windows version: ________  Date: ________
 - [ ] First run on a PC without Python: winget step (expected to say not found until winget adds 3.15), then the python.org download
 - [ ] It prints "SHA-256 matches" and "signature valid: Python Software Foundation", with no UAC prompt
 - [ ] `%LOCALAPPDATA%\Programs\Python\Python315\python.exe` exists, and `python --version` shows 3.15.1 in a NEW terminal
-- [ ] The smoke test prints "OK: agentparcel @@ZS_VERSION@@ ... tools: inspect, split_zip, split_any_file, split_files, verify, rebuild, make_apps_bundle"
+- [ ] The smoke test prints "OK: agentparcel @@ZS_VERSION@@ ... tools: inspect, split_zip, split_any_file, split_files, verify, regenerate_parts, rebuild, make_apps_bundle"
 - [ ] `MCP-config-snippets.txt` is written, its paths are correct, and it waits for a key at the end
 - [ ] A second run says "found" and skips the install
 - [ ] Paste a snippet into one agent (e.g. Cursor or Claude Code). The agent lists the agentparcel tools, and a `split_zip` and `rebuild` round trip works

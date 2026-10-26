@@ -6,14 +6,19 @@ AgentParcel is an independent project. It is not affiliated with, endorsed by, o
 
 | Package | Platform | Status |
 |---|---|---|
-| `AgentParcel-@@ZS_VERSION@@-windows.zip` | Windows 10/11 (PowerShell 5.1, included in Windows) | PowerShell source is in the package. The 3.4.0 PowerShell changes were not executed on Windows in this build |
-| `AgentParcel-@@ZS_VERSION@@-linux.zip` | Linux with Python 3.9+ (Tk optional) | unit tests for byte split, verify, rebuild.py, and cancel; MCP tools checked |
-| `AgentParcel-@@ZS_VERSION@@-macos.zip` | macOS 11+ with Python 3.9+ | **UNTESTED - needs testing on a real Mac** (same Python program as Linux; not run on Mac hardware) |
+| `AgentParcel-@@ZS_VERSION@@-windows.zip` | Windows 10/11 (PowerShell 5.1, included in Windows) | PowerShell source is in the package. The 3.5.0 PowerShell changes (size presets and Resend) were not executed on Windows in this build |
+| `AgentParcel-@@ZS_VERSION@@-linux.zip` | Linux with Python 3.9+ (Tk optional) | unit tests for presets, regenerate, zlib, AES-GCM, rebuild.py, and the wheel install; MCP tools checked |
+| `AgentParcel-@@ZS_VERSION@@-macos.zip` | macOS 11+ with Python 3.9+ | **community-tested/beta** (same Python program as Linux). Mac users: if you hit an issue or can help test, reach out via chriskalkowski.com. |
 
 Check a download:  `sha256sum -c SHA256SUMS.txt` (Linux), `shasum -a 256 -c SHA256SUMS.txt` (macOS),
 `Get-FileHash .\AgentParcel-@@ZS_VERSION@@-windows.zip` (Windows PowerShell).
 
 ## What's new
+- **3.5.0: size presets.** Window menu and MCP `preset`: chatgpt-dot (19,000,000 bytes under 20 MB), chat-512 (500,000,000 under 512 MB), discord (24,000,000 under the free 25 MB cap; Nitro is higher), email (24,000,000 under a common 25 MB cap), github-release (1,900,000,000 under 2 GB), custom. Caps sit under the advertised limit. Limits can change.
+- **3.5.0: re-send missing parts.** MCP `regenerate_parts`, and Resend in the window, rewrite only the missing or corrupt parts from the original file. Rebuild names any parts that are still needed.
+- **3.5.0: optional zlib and AES-256-GCM.** Off by default. `rebuild.py` decompresses zlib parts with the standard library. Encrypted parts need AgentParcel plus `cryptography` (`pip install agentparcel[crypto]`). The password is not stored. `rebuild.py` will not decrypt and will not write a file.
+- **3.5.0: pip package.** `pip install agentparcel` provides `agentparcel` and `agentparcel-mcp`. Not uploaded to PyPI in this release.
+- **macOS is community-tested/beta.** Mac users: if you hit an issue or can help test, reach out via chriskalkowski.com.
 - **3.4.0: split any file.** Byte-level split of any file type into numbered parts under a size cap, rebuilt to the exact original (SHA-256). Window checkbox, and MCP tool `split_any_file`. `rebuild` accepts zip part sets and byte-split sets.
 - **3.4.0: verify.** Before rebuilding, check that every part is present and that each checksum matches the manifest. Missing and corrupt parts are named. Window button, and MCP tool `verify`.
 - **3.4.0: rebuild without AgentParcel.** Every split folder includes `HOW-TO-REBUILD.txt` and a dependency-free `rebuild.py` (Python 3 standard library only). The text file includes a PowerShell equivalent for a byte split. `rebuild.py` reassembles a byte-split file and checks it. For zip parts it verifies part-file checksums; AgentParcel still reassembles the zip.
@@ -35,7 +40,7 @@ Check a download:  `sha256sum -c SHA256SUMS.txt` (Linux), `shasum -a 256 -c SHA2
 - Our development builds that still used the ZipSplitter working name only recognise `AgentParcel-apps.zip` by its marker file. If someone picks the bundle
   plus only *some* parts by hand in one of those older builds, it can wrongly report missing parts. Choosing the folder,
   any single part, or all parts works. AgentParcel itself recognises both bundle names.
-- macOS package: not yet run on a Mac (Gatekeeper prompts, the Tk look and the pkg install path are unverified).
+- macOS package: community-tested/beta. Mac users: if you hit an issue or can help test, reach out via chriskalkowski.com.
 - The Windows Python installer helper was syntax-checked but not run on a real PC.
 - winget has no `Python.Python.3.15` package yet (its submission is still open as of
   2026-10-25), so the helper falls back to the python.org installer.

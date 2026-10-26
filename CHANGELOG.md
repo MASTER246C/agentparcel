@@ -8,6 +8,15 @@ AgentParcel is an independent project. It is not affiliated with, endorsed by, o
 
 Entries before 3.3.1 still use that working name for the files from our own development builds. The `_zipsplitter_*` marker files and the `ZIPSPLITTER_*` environment-variable fallbacks come from those builds, not from any other project named ZipSplitter. They remain only for backward compatibility.
 
+## 3.5.0 - 2026-10-26
+- **Size presets.** The window has a size-preset menu, and the MCP split tools take `preset`: `chatgpt-dot` (19,000,000 bytes, under a 20,000,000 byte ChatGPT Dot cap), `chat-512` (500,000,000 under 512,000,000; products differ), `discord` (24,000,000 under the free 25 MB cap; Nitro is higher and is not this preset), `email` (24,000,000 under a common 25 MB attachment cap), `github-release` (1,900,000,000 under GitHub's 2 GB release-asset limit), and `custom` (the size you type; default remains 19.5 MiB). Each cap sits under the advertised limit. Those limits can change.
+- **Re-send missing parts.** `regenerate_parts` (MCP) and Resend in the window rewrite only the parts verify reports as missing or corrupt, using the original file. Parts that already match are left as they are. Rebuild says which parts are still needed.
+- **Optional zlib and AES-256-GCM.** Off by default. Byte parts can be compressed with zlib (one part at a time, standard library). `rebuild.py` decompresses those with the standard library. Optional password encryption uses AES-256-GCM and scrypt from the `cryptography` package (`pip install agentparcel[crypto]`). The manifest records the algorithm and salt, never the password. `rebuild.py` refuses an encrypted set and does not write a file.
+- **PyPI layout.** `pyproject.toml` provides the `agentparcel` and `agentparcel-mcp` commands. The package is ready to upload; this release does not publish it.
+- **License line.** The project-site line now says ZipSplitter was only an internal working name, and that AgentParcel is not affiliated with or derived from any other project of that name. The license terms are unchanged.
+- **macOS.** Labeled community-tested/beta. Mac users: if you hit an issue or can help test, reach out via chriskalkowski.com.
+- 3.3.x and 3.4.0 part sets still verify and rebuild. Plain byte parts are unchanged when compression and encryption are left off.
+
 ## 3.4.0 - 2026-10-26
 - **Split any file.** A file of any type (PDF, video, dataset, CAD, and so on) can be cut into numbered raw parts under a size cap and rebuilt to the exact original bytes. The whole file's SHA-256 is checked. The window has "Byte-split this file"; a file that is not a zip is byte-split automatically. The MCP tool is `split_any_file`. `rebuild` handles both zip part sets and byte-split sets.
 - **Verify.** Before rebuilding, check that every part is present and that each part's checksum matches the manifest. Missing parts and corrupt parts are named separately. The window has a Verify button. The MCP tool is `verify`.

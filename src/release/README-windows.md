@@ -49,7 +49,7 @@ Other options: `-OutputDir DIR`, `-NoUnpackInner`, `-IncludeApps`, `-NoIncludeAp
 
 ## MCP server (AI agents)
 Agents such as Claude Desktop, Claude Code, Cursor and Codex CLI can call the server's tools
-(`inspect`, `split_zip`, `split_any_file`, `split_files`, `verify`, `rebuild`, `make_apps_bundle`) when a file is over an
+(`inspect`, `split_zip`, `split_any_file`, `split_files`, `verify`, `regenerate_parts`, `rebuild`, `make_apps_bundle`) when a file is over an
 upload limit.
 1. Double-click `Install-Python-for-AgentParcel.bat`. It:
    - looks for Python 3.15 and ignores the Microsoft Store `python.exe` shortcut;

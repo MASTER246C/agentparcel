@@ -45,7 +45,7 @@ Stop in the window cancels the job, deletes that run's partial output, and repor
 
 ## MCP server (AI agents)
 `mcp/agentparcel_mcp.py` gives Claude Code, Cursor and Codex CLI tools (`inspect`, `split_zip`,
-`split_any_file`, `split_files`, `verify`, `rebuild`, `make_apps_bundle`) for files that are over an upload limit.
+`split_any_file`, `split_files`, `verify`, `regenerate_parts`, `rebuild`, `make_apps_bundle`) for files that are over an upload limit.
 Check it with `python3 mcp/agentparcel_mcp.py --list-tools`, then paste a snippet from
 `mcp/README-mcp.txt` with your real paths. (Claude Desktop has no official Linux build.)
 

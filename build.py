@@ -107,7 +107,7 @@ def build_release(version, sub, files, ps_full, py_full, now):
             "UROOT": "/home/YOU",
         },
         "macos": {
-            "UHEAD": "MACOS  (UNTESTED - replace /Users/YOU with your home folder if you extracted elsewhere)",
+            "UHEAD": "MACOS  (community-tested/beta - replace /Users/YOU with your home folder if you extracted elsewhere)",
             "UFIND": ("Find python:  ../install-python-macos.sh --check   (prints the path to use)\n"
                       "  python.org: /usr/local/bin/python3   Homebrew: /opt/homebrew/bin/python3 (Apple silicon)\n"
                       "  Don't use /usr/bin/python3 (Apple's stub). If yours differs, change \"command\" below.\n"),
@@ -205,7 +205,7 @@ def main():
     version = read("VERSION").strip()
     sub = lambda t: t.replace("@@ZS_VERSION@@", version)
     ps_core = sub(read("AgentParcel.core.ps1"))
-    py_core = sub(read("agentparcel.core.py"))
+    py_core = sub(read(os.path.join("agentparcel", "core.py")))
     assert "\r\n" in ps_core and "\r\n" not in py_core, "line endings: .ps1 must be CRLF, .py LF"
     for core in (ps_core, py_core):
         assert len(re.findall(r"(?m)^#==ZS-PAYLOAD-(BEGIN|END)==\r?$", core)) == 2, "payload marker lines"
@@ -219,12 +219,12 @@ def main():
         "agentparcel.desktop": read("agentparcel.desktop"),
         "README-mac-linux.txt": sub(read("README-mac-linux.txt")),
         "HOW TO REBUILD.txt": read("HOW-TO-REBUILD.txt"),
-        "rebuild.py": read("rebuild.py"),
+        "rebuild.py": read(os.path.join("agentparcel", "rebuild.py")),
         "LICENSE.txt": read(os.path.join("release", "LICENSE.txt")).replace("\n", "\r\n"),
         "icon-AgentParcel.ico.b64": asset_b64("AgentParcel-small.ico"),
         "icon-agentparcel-64.png.b64": asset_b64("agentparcel-64.png"),
         "icon-agentparcel-32.png.b64": asset_b64("agentparcel-32.png"),
-        "agentparcel_mcp.py": sub(read("agentparcel_mcp.py")),
+        "agentparcel_mcp.py": sub(read(os.path.join("agentparcel", "mcp.py"))),
         "README-mcp.txt": render_mcp_readme(sub(read("README-mcp.txt")), **GENERIC_WIN),
         "Install-Python-for-AgentParcel.bat": sub(read("Install-Python-for-AgentParcel.bat")),
     }
@@ -236,7 +236,7 @@ def main():
     b64 = base64.b64encode(co.compress(blob) + co.flush()).decode("ascii")
 
     # use the program's own fill function so build and runtime can never disagree
-    spec = importlib.util.spec_from_file_location("zs_core", os.path.join(SRC, "agentparcel.core.py"))
+    spec = importlib.util.spec_from_file_location("zs_core", os.path.join(SRC, "agentparcel", "core.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     ps_full = mod.fill_payload(ps_core, b64, "\r\n", "ps")

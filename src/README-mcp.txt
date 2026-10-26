@@ -21,12 +21,21 @@ TOOLS
   split_files        zip files and/or folders (logs, videos, datasets, projects) and split in one step.
   verify             read-only: every part present, each checksum matches the manifest. Names the
                      missing parts and the corrupt parts. Writes nothing.
+  regenerate_parts   rewrite only the missing or corrupt parts from the original file, so those
+                     parts can be uploaded again. Leaves parts that already match untouched.
   rebuild            rebuild a zip part set OR a byte-split set from a folder / one part / a list
-                     (SHA-256 verified; names any missing or corrupt part). extract=true unpacks a
-                     rebuilt zip into a folder.
+                     (SHA-256 verified; names any missing or corrupt part, and which are still
+                     needed). extract=true unpacks a rebuilt zip into a folder.
   make_apps_bundle   write AgentParcel-apps.zip (the apps for a human recipient).
   Sizes: max_mb is MiB (19.5 = 20,447,232 bytes). For an exact limit pass max_bytes
   (e.g. a "20 MB" upload limit that means 20,000,000 bytes -> max_bytes 20000000, or max_mb 19).
+  Or pass preset: chatgpt-dot (19000000 bytes), chat-512 (500000000), discord (24000000;
+  Nitro is higher and is not this preset), email (24000000), github-release (1900000000).
+  Each cap is under the advertised limit. Limits can change. A named preset sets the size;
+  do not also pass max_bytes.
+  split_any_file compress=true uses zlib (rebuild.py undoes it, stdlib only).
+  password encrypts byte parts with AES-256-GCM (pip install agentparcel[crypto]).
+  The password is never stored. rebuild.py cannot decrypt an encrypted set.
   All paths must be absolute. Nothing is ever overwritten or deleted (new names get " (2)").
   Agents get the apps bundle only if they ask (include_apps=true).
 

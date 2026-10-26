@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentparcel"
+dynamic = ["version"]
+description = "Split large files into upload-sized parts and rebuild them exactly."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "LicenseRef-AgentParcel-1.0"
+license-files = ["LICENSE.txt"]
+authors = [{name = "Chris Kalkowski"}]
+keywords = ["mcp", "agents", "zip", "file-split"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = []
+
+[project.optional-dependencies]
+crypto = ["cryptography>=42"]
+
+[project.urls]
+Homepage = "https://agentparcel.net"
+Source = "https://github.com/MASTER246C/agentparcel"
+Issues = "https://github.com/MASTER246C/agentparcel/issues"
+
+[project.scripts]
+agentparcel = "agentparcel.cli:main"
+agentparcel-mcp = "agentparcel.mcp:main"
+
+[tool.setuptools]
+packages = ["agentparcel"]
+
+[tool.setuptools.package-dir]
+agentparcel = "src/agentparcel"
+
+[tool.setuptools.dynamic]
+version = {file = "src/VERSION"}

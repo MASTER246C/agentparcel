@@ -33,7 +33,7 @@ import traceback
 import zipfile
 
 SERVER_NAME = "agentparcel"
-SERVER_VERSION = "@@ZS_VERSION@@"
+SERVER_VERSION = "@@ZS_VERSION@@"  # build.py fills this; a wheel uses the engine version below
 PROTOCOLS = ["2025-06-18", "2025-03-26", "2024-11-05"]
 MIB = 1024 * 1024
 DEFAULT_MB = 19.5
@@ -63,20 +63,39 @@ def send(msg):
 # --- load the AgentParcel engine (never duplicated here) -------------------------------------------
 def _load_core():
     here = os.path.dirname(os.path.abspath(__file__))
-    cands = [os.environ.get("AGENTPARCEL_PY"), os.environ.get("ZIPSPLITTER_PY"), os.path.join(here, "agentparcel.py"),
-             os.path.join(here, "..", "mac-linux", "agentparcel.py"), os.path.join(here, "..", "agentparcel.py")]
+    packaged = os.path.isfile(os.path.join(here, "__init__.py"))
+    cands = []
+    env = os.environ.get("AGENTPARCEL_PY") or os.environ.get("ZIPSPLITTER_PY")
+    if env:
+        cands.append(env)
+    sibling = os.path.join(here, "agentparcel.py")
+    if os.path.isfile(sibling) and not packaged:
+        cands.append(sibling)
+    if not packaged:
+        cands.extend([
+            os.path.join(here, "agentparcel.core.py"),
+            os.path.join(here, "core.py"),
+            os.path.join(here, "..", "mac-linux", "agentparcel.py"),
+            os.path.join(here, "..", "agentparcel.py"),
+        ])
     for c in cands:
         if c and os.path.isfile(c):
-            spec = importlib.util.spec_from_file_location("agentparcel", os.path.abspath(c))
+            spec = importlib.util.spec_from_file_location("agentparcel_engine", os.path.abspath(c))
             mod = importlib.util.module_from_spec(spec)
-            sys.modules["agentparcel"] = mod
             spec.loader.exec_module(mod)
             return mod, os.path.abspath(c)
+    try:
+        from agentparcel import core as mod
+        return mod, os.path.abspath(getattr(mod, "__file__", "") or "")
+    except ImportError:
+        pass
     log("ERROR: agentparcel.py not found next to agentparcel_mcp.py (or set AGENTPARCEL_PY).")
     sys.exit(2)
 
 
 zs, CORE_PATH = _load_core()
+if str(SERVER_VERSION).startswith("@@"):
+    SERVER_VERSION = zs.VERSION
 
 
 class ToolError(Exception):
@@ -175,6 +194,21 @@ def safe_name(name, fallback="files"):
 def get_limit(args, minimum=None):
     if minimum is None:
         minimum = MIN_LIMIT
+    preset = args.get("preset")
+    if isinstance(preset, str):
+        preset = preset.strip().lower()
+    else:
+        preset = None
+    if preset not in (None, "", "custom"):
+        if args.get("max_bytes") is not None:
+            raise ToolError("Pass preset or max_bytes, not both. A named preset sets the part size.")
+        try:
+            limit, _key = zs.limit_from_preset(preset, 0)
+        except zs.ZsError as ex:
+            raise ToolError(str(ex))
+        if limit < minimum:
+            raise ToolError("The size limit is too small (minimum %d bytes)." % minimum)
+        return limit
     if args.get("max_bytes") is not None:
         try:
             limit = int(args["max_bytes"])
@@ -191,6 +225,18 @@ def get_limit(args, minimum=None):
     if limit < minimum:
         raise ToolError("The size limit is too small (minimum %d bytes)." % minimum)
     return limit
+
+
+def note_preset(res, args, limit):
+    preset = args.get("preset")
+    if not isinstance(preset, str):
+        return
+    preset = preset.strip().lower()
+    if preset in ("", "custom"):
+        return
+    res["preset"] = preset
+    res.setdefault("notes", []).insert(
+        0, "Preset %s sets the part cap to %d bytes. Upload limits can change; confirm the current one." % (preset, limit))
 
 
 def budget_for(limit):
@@ -347,6 +393,7 @@ def tool_split_zip(args, job):
     r = run_splitter(src, out_dir, limit, as_bool(args, "unpack_inner", True), as_bool(args, "include_apps", False),
                      job.phase(0, 100), job)
     res = split_result(r, src, size)
+    note_preset(res, args, limit)
     if size <= limit:
         res["notes"].insert(0, "The zip was already under the limit (%d <= %d bytes); it was split anyway." % (size, limit))
     return res, split_summary(res)
@@ -486,6 +533,7 @@ def tool_split_files(args, job):
         "skipped": skipped,
     })
     del res["original"]
+    note_preset(res, args, limit)
     if skipped:
         res["notes"].insert(0, "%d item(s) were skipped (see 'skipped')." % len(skipped))
     res["how_to_rebuild"] += (" Rebuilding gives %s.zip (the inputs zipped together, folders kept); use rebuild with "
@@ -493,7 +541,7 @@ def tool_split_files(args, job):
     return res, split_summary(res)
 
 
-_MISSING_RX = re.compile(r"Missing (\d+) of (\d+) parts of \"(.*)\": part ([\d, ]+)\n\((.*)\)", re.S)
+_MISSING_RX = re.compile(r"Missing (\d+) of (\d+) parts of \"(.*)\": part ([\d, ]+)\n\((.*?)\)", re.S)
 
 
 def _safe_extract(zip_path, dest):
@@ -532,7 +580,7 @@ def tool_rebuild(args, job):
     out = output_folder(args.get("output_dir"), None, as_bool(args, "create_output_dir", False))
     extract = as_bool(args, "extract", False)
     try:
-        r = zs.rebuild(items, out, job.phase(0, 90 if extract else 100), job.check)
+        r = zs.rebuild(items, out, job.phase(0, 90 if extract else 100), job.check, password=_password_arg(args))
     except zs.ZsError as ex:
         data = dict(getattr(ex, "data", None) or {})
         if data.get("missing_parts") or data.get("corrupt_parts"):
@@ -573,18 +621,38 @@ def tool_rebuild(args, job):
     return res, text
 
 
+def _password_arg(args):
+    if "password" not in args or args.get("password") in (None, ""):
+        return None
+    if not isinstance(args.get("password"), str):
+        raise ToolError("password must be a string. It is not stored in the manifest.")
+    return args.get("password")
+
+
 def tool_split_any_file(args, job):
     src = existing(args.get("path"), "path", "file")
     limit = get_limit(args, 1)
     parent = output_folder(args.get("output_dir"), os.path.dirname(src), as_bool(args, "create_output_dir", False))
     out_dir = unique_dir(os.path.join(parent, os.path.basename(src) + "_split"))
+    compress = as_bool(args, "compress", False)
+    password = _password_arg(args)
+    preset = args.get("preset") if isinstance(args.get("preset"), str) else None
     try:
         r = zs.split_any_file(src, out_dir, limit, job.phase(0, 100),
-                              include_apps=as_bool(args, "include_apps", False), should_cancel=job.check)
+                              include_apps=as_bool(args, "include_apps", False), should_cancel=job.check,
+                              compress=compress, password=password, preset=preset)
     except BaseException:
         cleanup_empty(out_dir)
         raise
     res = split_result(r, src, os.path.getsize(src))
+    note_preset(res, args, limit)
+    if compress:
+        res["compression"] = "zlib"
+        res["notes"].append("Each part is zlib-compressed. python3 rebuild.py in the folder decompresses it (stdlib only).")
+    if password:
+        res["encrypted"] = True
+        res["notes"].append("Parts are encrypted with AES-256-GCM. The password is not in the manifest. "
+                            "rebuild.py cannot decrypt them; use AgentParcel with the cryptography package.")
     res["mode"] = "bytes"
     res["sha256"] = r.get("sha256")
     for name in (zs.HOWTO_NAME, zs.REBUILD_SCRIPT_NAME, zs.BYTES_MANIFEST):
@@ -618,8 +686,41 @@ def tool_verify(args, job):
         "missing_names": list(report["missing_names"]),
         "corrupt_parts": list(report["corrupt"]),
         "present_parts": list(report["present"]),
+        "still_needed": report.get("still_needed") or "",
     }
     return data, report["message"] or ("OK" if report["ok"] else "Parts do not match.")
+
+
+def tool_regenerate_parts(args, job):
+    original = existing(args.get("original"), "original", "file")
+    parts = args.get("parts")
+    if isinstance(parts, str):
+        parts = [parts]
+    if not isinstance(parts, list) or not parts:
+        raise ToolError("parts must be a folder, one part, or a list of part paths (absolute).")
+    items = [existing(p, "parts[%d]" % i) for i, p in enumerate(parts)]
+    numbers = args.get("part_numbers")
+    if numbers is not None:
+        if isinstance(numbers, int):
+            numbers = [numbers]
+        if not isinstance(numbers, list) or not all(isinstance(n, int) for n in numbers):
+            raise ToolError("part_numbers must be a list of part numbers (integers). Omit it to regenerate every missing or corrupt part.")
+    try:
+        report = zs.regenerate_parts(original, items, numbers, password=_password_arg(args),
+                                     progress=job.phase(0, 100), should_cancel=job.check)
+    except zs.ZsError as ex:
+        data = dict(getattr(ex, "data", None) or {})
+        raise ToolError(str(ex), data)
+    data = {
+        "ok": bool(report["ok"]),
+        "mode": report.get("mode"),
+        "output_dir": report.get("output_dir"),
+        "regenerated": report.get("regenerated") or [],
+        "still_needed": report.get("still_needed") or "",
+        "missing_parts": list(report.get("missing") or []),
+        "corrupt_parts": list(report.get("corrupt") or []),
+    }
+    return data, report.get("message") or ""
 
 
 def _byte_presence(manifest_path):
@@ -844,7 +945,17 @@ _LIMIT_PROPS = {
                "description": "Max size of each part in MiB (1 MB here = 1,048,576 bytes). Default 19.5. If your upload "
                               "limit is in decimal MB (e.g. 20 MB = 20,000,000 bytes) pass max_bytes or a smaller max_mb."},
     "max_bytes": {"type": "integer", "minimum": MIN_LIMIT,
-                  "description": "Exact max size of each part in bytes. Overrides max_mb."},
+                  "description": "Exact max size of each part in bytes. Overrides max_mb. Do not combine with a named preset."},
+    "preset": {"type": "string",
+               "enum": ["custom", "chatgpt-dot", "chat-512", "discord", "email", "github-release"],
+               "description": "Pick the part size from a platform cap. custom (default) uses max_mb/max_bytes. "
+                              "chatgpt-dot: 19,000,000 bytes (under a 20,000,000 byte ChatGPT Dot cap). "
+                              "chat-512: 500,000,000 bytes (under a 512,000,000 byte chat cap; products differ). "
+                              "discord: 24,000,000 bytes for the free 25 MB limit (Nitro is higher and is not this preset). "
+                              "email: 24,000,000 bytes under a common 25 MB attachment cap (other providers differ). "
+                              "github-release: 1,900,000,000 bytes under GitHub's 2 GB release-asset limit. "
+                              "A named preset sets the part size. max_mb is ignored. max_bytes together with a named preset is an error. "
+                              "These limits can change; confirm the current one before a large send."},
 }
 _OUT_PROPS = {
     "output_dir": {"type": "string", "description": "Absolute folder to write into. A new sub-folder "
@@ -909,9 +1020,17 @@ TOOLS = [
                     "can rebuild without AgentParcel. Use split_zip or split_files when you want standalone zip parts.",
      "inputSchema": _obj(_merge({"path": {"type": "string", "description": "Absolute path of the file to split. Any type."}},
                                 {"max_mb": {"type": "number", "default": DEFAULT_MB, "minimum": 0,
-                                            "description": "Max size of each raw part in MiB. Default 19.5."},
+                                            "description": "Max size of each raw part in MiB. Default 19.5. Ignored when preset is a named preset."},
                                  "max_bytes": {"type": "integer", "minimum": 1,
-                                               "description": "Exact max size of each raw part in bytes. Overrides max_mb. Minimum 1."}},
+                                               "description": "Exact max size of each raw part in bytes. Overrides max_mb. Minimum 1. Do not combine with a named preset."},
+                                 "preset": _LIMIT_PROPS["preset"],
+                                 "compress": {"type": "boolean", "default": False,
+                                              "description": "Compress each byte part with zlib (level 6) before the size cap. Off by default. "
+                                                             "python3 rebuild.py in the folder decompresses these parts with the standard library."},
+                                 "password": {"type": "string",
+                                              "description": "If set, encrypt each byte part with AES-256-GCM (scrypt key derivation). "
+                                                             "Requires the cryptography package (pip install agentparcel[crypto]). "
+                                                             "Off when omitted. The password is never written to the manifest or the log."}},
                                 _OUT_PROPS, _APPS_PROP), ["path"]),
      "outputSchema": _SPLIT_OUT,
      "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}},
@@ -944,6 +1063,23 @@ TOOLS = [
          "ok": {"type": "boolean"}, "missing_parts": {"type": "array"}, "missing_names": {"type": "array"},
          "corrupt_parts": {"type": "array"}, "present_parts": {"type": "array"}}},
      "annotations": {"readOnlyHint": True, "openWorldHint": False}},
+    {"name": "regenerate_parts", "title": "Re-send only the missing or corrupt parts",
+     "description": "Given the original file and an existing part set, rewrite only the parts that verify reports as "
+                    "missing or corrupt (or the part_numbers you list). Parts that already match are left untouched, "
+                    "so you can upload just the replacements. Works for a byte-split folder and, when a fresh split "
+                    "lands on the same layout, for a zip part set. If the zip layout does not match, nothing is replaced "
+                    "and the error tells you to split the whole zip again. An encrypted byte set needs password. "
+                    "The password is not stored. still_needed names any parts that are still missing or corrupt.",
+     "inputSchema": _obj({
+         "original": {"type": "string", "description": "Absolute path of the original file that was split."},
+         "parts": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                   "description": "Absolute paths: the parts folder, one part, or all parts."},
+         "part_numbers": {"type": "array", "items": {"type": "integer"},
+                          "description": "Part numbers to rewrite. Omit to rewrite every missing or corrupt part from verify."},
+         "password": {"type": "string",
+                      "description": "Password for an encrypted byte set. Not stored and not logged."}},
+         ["original", "parts"]),
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}},
     {"name": "rebuild", "title": "Rebuild the original from parts",
      "description": "Rebuild the original from AgentParcel parts (made by this server or by any AgentParcel app). "
                     "Zip part sets become the original zip (every file verified, size + SHA-256). A byte-split set "
@@ -958,7 +1094,9 @@ TOOLS = [
          "output_dir": {"type": "string", "description": "Absolute folder for the rebuilt zip (default: next to the parts)."},
          "create_output_dir": _OUT_PROPS["create_output_dir"],
          "extract": {"type": "boolean", "default": False,
-                     "description": "Also extract the rebuilt zip into a new folder next to it."}}, ["parts"]),
+                     "description": "Also extract the rebuilt zip into a new folder next to it."},
+         "password": {"type": "string",
+                      "description": "Password for an encrypted byte-split set. Never stored. Omit for zip sets and for plain byte sets."}}, ["parts"]),
      "outputSchema": {"type": "object", "properties": {"ok": {"type": "boolean"}, "output_path": {"type": "string"},
                                                         "bytes": {"type": "integer"}, "verified": {"type": "boolean"}}},
      "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}},
@@ -972,17 +1110,21 @@ TOOLS = [
 ]
 
 HANDLERS = {"inspect": tool_inspect, "split_zip": tool_split_zip, "split_any_file": tool_split_any_file,
-            "split_files": tool_split_files, "verify": tool_verify, "rebuild": tool_rebuild,
-            "make_apps_bundle": tool_make_apps_bundle}
+            "split_files": tool_split_files, "verify": tool_verify, "regenerate_parts": tool_regenerate_parts,
+            "rebuild": tool_rebuild, "make_apps_bundle": tool_make_apps_bundle}
 
 INSTRUCTIONS = (
     "AgentParcel splits big zips/files/folders into parts under an upload size limit and rebuilds the original "
     "(verified). Typical flow: inspect(path) -> split_zip (a .zip, standalone zip parts) or split_any_file (any one "
     "file, exact bytes, plus HOW-TO-REBUILD.txt and rebuild.py) or split_files (files/folders packed into zip parts) "
-    "-> upload every returned part path. Before rebuild, call verify(parts=[folder]); it names missing and corrupt "
-    "parts and writes nothing. To restore: rebuild(parts=[folder]) handles both zip sets and byte-split sets. "
-    "All paths must be absolute. max_mb is MiB (19.5 default = 20,447,232 bytes); use max_bytes for an exact byte "
-    "limit. Nothing is ever overwritten. A cancelled call deletes the partial output it had started.")
+    "-> upload every returned part path. Pass preset to pick a platform cap (chatgpt-dot, chat-512, discord, email, "
+    "github-release) instead of max_mb. Those caps sit under the advertised limit and the real limit can change. "
+    "split_any_file compress=true uses zlib (rebuild.py can undo it). password encrypts byte parts with AES-256-GCM; "
+    "it is never stored. Before rebuild, call verify(parts=[folder]); it names missing and corrupt parts and writes "
+    "nothing. regenerate_parts(original, parts) rewrites only those parts so you can re-upload them. "
+    "To restore: rebuild(parts=[folder]) handles both zip sets and byte-split sets, and says which parts are still "
+    "needed when it cannot. All paths must be absolute. max_mb is MiB (19.5 default = 20,447,232 bytes); use max_bytes "
+    "for an exact byte limit. Nothing is ever overwritten. A cancelled call deletes the partial output it had started.")
 
 
 # --- JSON-RPC / MCP server ------------------------------------------------------------------------
@@ -1158,7 +1300,9 @@ class Server:
         log("bye")
 
 
-def main(argv):
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
     if "--version" in argv:
         sys.stderr.write("AgentParcel MCP server %s\n" % SERVER_VERSION)
         return 0

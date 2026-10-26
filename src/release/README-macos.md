@@ -7,10 +7,10 @@
 
 *Project site: https://agentparcel.net*
 
-> **UNTESTED - needs testing.** This package has not been run on a real Mac yet. It is the same
-> Python program as the tested Linux release, but the Finder/Gatekeeper steps, the Tk window
-> and `install-python-macos.sh` are unverified. Please work through `TESTING-CHECKLIST.md` and
-> report what happens.
+> **Community-tested/beta.** This is the same Python program as the Linux release. Finder,
+> Gatekeeper, the Tk window, and `install-python-macos.sh` still need Mac hardware.
+> Mac users: if you hit an issue or can help test, reach out via chriskalkowski.com.
+> `TESTING-CHECKLIST.md` is the list to work through.
 
 Splits a big `.zip` into smaller standalone zips (19.5 MB each by default) and rebuilds the original
 from them, checking it with SHA-256. It can also byte-split any file into numbered parts and rebuild
@@ -49,7 +49,7 @@ python3 agentparcel.py --join ~/Downloads/big_split --output-dir ~/Desktop
 
 ## MCP server (AI agents)
 `mcp/agentparcel_mcp.py` gives Claude Desktop, Claude Code, Cursor and Codex CLI tools
-(`inspect`, `split_zip`, `split_any_file`, `split_files`, `verify`, `rebuild`, `make_apps_bundle`). Use the full python path:
+(`inspect`, `split_zip`, `split_any_file`, `split_files`, `verify`, `regenerate_parts`, `rebuild`, `make_apps_bundle`). Use the full python path:
 `/usr/local/bin/python3` (python.org) or `/opt/homebrew/bin/python3` (Homebrew on Apple silicon).
 Don't use `/usr/bin/python3`. Snippets are in `mcp/README-mcp.txt`.
 

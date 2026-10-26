@@ -690,6 +690,21 @@ function New-ZsVerifyReport([string]$Format, [string]$Original, [int]$PartCount,
         if ($null -eq $item) { continue }
         $lines.Add('Corrupt part ' + $item.Part + ' (' + $item.Name + '): ' + $item.Reason)
     }
+    if (-not $ok) {
+        $bits = New-Object System.Collections.Generic.List[string]
+        $miss = @($Missing)
+        $missNames = @($MissingNames)
+        for ($i = 0; $i -lt $miss.Count; $i++) {
+            $nm = ''
+            if ($i -lt $missNames.Count) { $nm = [string]$missNames[$i] }
+            $bits.Add(('part ' + $miss[$i] + ' ' + $nm).Trim())
+        }
+        foreach ($item in @($Corrupt)) {
+            if ($null -eq $item) { continue }
+            $bits.Add(('part ' + $item.Part + ' ' + $item.Name).Trim())
+        }
+        if ($bits.Count -gt 0) { $lines.Add('Still needed: ' + ($bits -join ', ')) }
+    }
     return (New-Object PSObject -Property @{
         Ok = $ok; Format = $Format; OriginalName = $Original; PartCount = $PartCount
         Missing = @($Missing); MissingNames = @($MissingNames); Corrupt = @($Corrupt); Present = @($Present)
@@ -842,6 +857,89 @@ function Invoke-ZsVerifyBytes([string]$ManifestPath) {
         }
     }
     return (New-ZsVerifyReport 'agentparcel-bytes' $original $partCount $missing.ToArray() $missingNames.ToArray() $corrupt.ToArray() $present.ToArray())
+}
+
+# Preset part caps (decimal bytes), kept slightly under each advertised limit. Limits can change.
+# chatgpt-dot: 19,000,000 under 20,000,000 (ChatGPT Dot). chat-512: 500,000,000 under 512,000,000.
+# discord: 24,000,000 under the free 25,000,000 byte cap. Nitro is higher and is not this preset.
+# email: 24,000,000 under a common 25,000,000 byte mailbox cap. github-release: 1,900,000,000 under 2,000,000,000.
+function Get-ZsPresetBytes([string]$Name) {
+    switch ($Name) {
+        'chatgpt-dot' { return [long]19000000 }
+        'chat-512' { return [long]500000000 }
+        'discord' { return [long]24000000 }
+        'email' { return [long]24000000 }
+        'github-release' { return [long]1900000000 }
+        default { return $null }
+    }
+}
+function Get-ZsPresetNote([string]$Name) {
+    switch ($Name) {
+        'chatgpt-dot' { return '19,000,000 bytes, under 20 MB. Limits can change.' }
+        'chat-512' { return '500,000,000 bytes, under 512 MB. Limits can change.' }
+        'discord' { return '24,000,000 bytes. Free 25 MB, not Nitro. Limits can change.' }
+        'email' { return '24,000,000 bytes, under a 25 MB cap. Limits can change.' }
+        'github-release' { return '1,900,000,000 bytes, under 2 GB. Limits can change.' }
+        default { return 'Custom size in MB. Default 19.5.' }
+    }
+}
+
+function Invoke-ZsRegeneratePlain {
+    param([string]$Original, [string[]]$InputPaths)
+    $manifestPath = Find-ZsByteManifest $InputPaths
+    if (-not $manifestPath) { throw 'Re-send from this window works for a plain byte-split folder. For a zip set, use the Python app.' }
+    $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+    $propNames = @($manifest.PSObject.Properties.Name)
+    if ($propNames -contains 'encryption' -or $propNames -contains 'compression') {
+        throw 'This set uses compression or encryption. Re-send those parts with the Python app or regenerate_parts. This window only rewrites plain byte parts.'
+    }
+    $origItem = Get-Item -LiteralPath $Original
+    if ($origItem.Name -ne [string](Get-ZsProp $manifest 'originalName')) { throw 'The original file name does not match this part set.' }
+    if ((Get-ZsSha256File $Original) -ne [string](Get-ZsProp $manifest 'sha256')) { throw 'The original file does not match this part set (SHA-256).' }
+    if ($origItem.Length -ne [long](Get-ZsProp $manifest 'originalSize')) { throw 'The original file size does not match this part set.' }
+    $report = Invoke-ZsVerifyBytes $manifestPath
+    $targets = New-Object System.Collections.Generic.List[int]
+    foreach ($n in @($report.Missing)) { if ($null -ne $n -and "$n" -ne '') { [void]$targets.Add([int]$n) } }
+    foreach ($c in @($report.Corrupt)) {
+        if ($c -and $null -ne $c.Part -and -not $targets.Contains([int]$c.Part)) { [void]$targets.Add([int]$c.Part) }
+    }
+    $folder = [System.IO.Path]::GetDirectoryName($manifestPath)
+    if ($targets.Count -eq 0) {
+        return (New-Object PSObject -Property @{ Ok = $true; Message = 'Nothing to regenerate. All parts match the manifest.'; OutputDir = $folder })
+    }
+    $by = @{}
+    foreach ($p in @($manifest.parts)) { $by[[int]$p.part] = $p }
+    $src = [System.IO.File]::OpenRead($Original)
+    $done = New-Object System.Collections.Generic.List[string]
+    try {
+        foreach ($number in $targets) {
+            $part = $by[[int]$number]
+            if (-not $part) { throw ('Part ' + $number + ' is not in the manifest.') }
+            $src.Position = [long]$part.offset
+            $left = [long]$part.size
+            $dest = Join-Path $folder ([string]$part.name)
+            $tmp = $dest + '.new'
+            $out = [System.IO.File]::Open($tmp, [System.IO.FileMode]::Create)
+            $buf = New-Object byte[] 1048576
+            try {
+                while ($left -gt 0) {
+                    $want = $buf.Length
+                    if ($want -gt $left) { $want = [int]$left }
+                    $nread = $src.Read($buf, 0, $want)
+                    if ($nread -le 0) { throw ('The original file is shorter than part ' + $number + ' needs.') }
+                    $out.Write($buf, 0, $nread)
+                    $left -= $nread
+                }
+            } finally { $out.Dispose() }
+            if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Force }
+            Move-Item -LiteralPath $tmp -Destination $dest
+            [void]$done.Add('part ' + $number + ' (' + $part.name + ')')
+        }
+    } finally { $src.Dispose() }
+    $after = Invoke-ZsVerifyBytes $manifestPath
+    $msg = 'Regenerated ' + ($done -join ', ') + '.'
+    if ($after.Ok) { $msg += "`nAll parts are now present and match the manifest." } else { $msg += "`n" + $after.Message }
+    return (New-Object PSObject -Property @{ Ok = [bool]$after.Ok; Message = $msg; OutputDir = $folder })
 }
 
 function Invoke-ZsVerifyZip([string[]]$InputPaths) {
@@ -1547,7 +1645,8 @@ function Invoke-ZipJoin {
                 $stemName = [System.IO.Path]::GetFileNameWithoutExtension($origName)
                 $w = [Math]::Max(2, ([string]$partCount).Length)
                 $names = @(); foreach ($k in $missing) { $names += ($stemName + '_part' + ([string]$k).PadLeft($w, '0') + '.zip') }
-                throw ('Missing ' + $missing.Count + ' of ' + $partCount + ' parts of "' + $origName + '": part ' + ($missing -join ', ') + "`r`n(" + ($names -join ', ') + ')')
+                $still = @(); for ($i = 0; $i -lt $missing.Count; $i++) { $still += ('part ' + $missing[$i] + ' ' + $names[$i]).Trim() }
+                throw ('Missing ' + $missing.Count + ' of ' + $partCount + ' parts of "' + $origName + '": part ' + ($missing -join ', ') + "`r`n(" + ($names -join ', ') + ')' + "`r`nStill needed: " + ($still -join ', '))
             }
             $manifest = $null
             for ($k = 1; $k -le $partCount -and -not $manifest; $k++) {
@@ -1862,6 +1961,15 @@ $pathBox = New-ZsTextBox
 $browse = New-ZsButton 'Browse...' 110
 $ts.Controls.Add($pathBox, 0, $r); $ts.Controls.Add($browse, 1, $r)
 $r = Add-ZsRow $ts $null
+$presetLabel = New-ZsLabel 'Size preset:'
+$presetBox = New-Object System.Windows.Forms.ComboBox
+$presetBox.DropDownStyle = [System.Windows.Forms.ComboBoxStyle]::DropDownList
+$presetBox.Width = (px 160)
+[void]$presetBox.Items.AddRange(@('custom', 'chatgpt-dot', 'chat-512', 'discord', 'email', 'github-release'))
+$presetBox.SelectedItem = 'custom'
+$presetBox.Margin = New-Object System.Windows.Forms.Padding((px 3))
+$ts.Controls.Add($presetLabel, 0, $r); $ts.Controls.Add($presetBox, 1, $r)
+$r = Add-ZsRow $ts $null
 $optRow = New-Object System.Windows.Forms.FlowLayoutPanel
 $optRow.AutoSize = $true; $optRow.WrapContents = $false; $optRow.Margin = New-Object System.Windows.Forms.Padding(0)
 $limitLabel = New-ZsLabel 'Max size per zip (MB):'
@@ -1871,6 +1979,14 @@ $limitBox.DecimalPlaces = 1; $limitBox.Increment = 0.5; $limitBox.Minimum = 1; $
 $limitBox.Width = (px 80); $limitBox.Margin = New-Object System.Windows.Forms.Padding((px 3), (px 4), (px 3), (px 3))
 $optRow.Controls.Add($limitLabel); $optRow.Controls.Add($limitBox)
 $ts.Controls.Add($optRow, 0, $r); $ts.SetColumnSpan($optRow, 2)
+$r = Add-ZsRow $ts $null
+$presetNote = New-ZsLabel (Get-ZsPresetNote 'custom')
+$ts.Controls.Add($presetNote, 0, $r); $ts.SetColumnSpan($presetNote, 2)
+$presetBox.Add_SelectedIndexChanged({
+    $name = [string]$presetBox.SelectedItem
+    $presetNote.Text = Get-ZsPresetNote $name
+    if (-not $script:busy) { $limitBox.Enabled = ($name -eq 'custom' -or $name -eq '') }
+})
 $r = Add-ZsRow $ts $null
 $unpackBox = New-Object System.Windows.Forms.CheckBox
 $unpackBox.Text = 'Unpack zips inside the zip (recommended)'
@@ -1927,9 +2043,10 @@ $joinBtns = New-Object System.Windows.Forms.FlowLayoutPanel
 $joinBtns.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
 $joinBtns.AutoSize = $true; $joinBtns.WrapContents = $false; $joinBtns.Margin = New-Object System.Windows.Forms.Padding(0)
 $verifyBtn = New-ZsButton 'Verify' 110
+$resendBtn = New-ZsButton 'Resend' 110
 $joinBtn = New-ZsButton 'Rebuild' 110
 $joinBtn.Font = New-Object System.Drawing.Font($uiFont, [System.Drawing.FontStyle]::Bold)
-$joinBtns.Controls.Add($verifyBtn); $joinBtns.Controls.Add($joinBtn)
+$joinBtns.Controls.Add($verifyBtn); $joinBtns.Controls.Add($resendBtn); $joinBtns.Controls.Add($joinBtn)
 $tj.Controls.Add($joinBtns, 1, $r)
 $tabJoin.Controls.Add($tj)
 
@@ -1994,7 +2111,8 @@ $guiProgress = {
 
 function Set-ZsBusy([bool]$On) {
     $script:busy = $On
-    foreach ($c in @($splitBtn, $browse, $limitBox, $unpackBox, $appsBox, $rawBox, $joinBtn, $verifyBtn, $addParts, $addFolder, $clearParts, $outBox, $outBrowse)) { $c.Enabled = -not $On }
+    foreach ($c in @($splitBtn, $browse, $presetBox, $limitBox, $unpackBox, $appsBox, $rawBox, $joinBtn, $verifyBtn, $resendBtn, $addParts, $addFolder, $clearParts, $outBox, $outBrowse)) { $c.Enabled = -not $On }
+    if (-not $On -and [string]$presetBox.SelectedItem -ne 'custom' -and [string]$presetBox.SelectedItem -ne '') { $limitBox.Enabled = $false }
     $stopBtn.Enabled = $On
     if ($On) { $openBtn.Enabled = $false }
 }
@@ -2016,7 +2134,10 @@ function Start-Split {
     $p = $pathBox.Text.Trim().Trim('"')
     if (-not $p) { [void][System.Windows.Forms.MessageBox]::Show('Choose a file first.', 'AgentParcel'); return }
     if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { [void][System.Windows.Forms.MessageBox]::Show('File not found:' + "`r`n" + $p, 'AgentParcel'); return }
-    $lim = [long][Math]::Floor([double]$limitBox.Value * 1024 * 1024)
+    $presetName = [string]$presetBox.SelectedItem
+    $presetBytes = Get-ZsPresetBytes $presetName
+    if ($null -ne $presetBytes) { $lim = [long]$presetBytes }
+    else { $lim = [long][Math]::Floor([double]$limitBox.Value * 1024 * 1024) }
     $len = (Get-Item -LiteralPath $p).Length
     $raw = [bool]$rawBox.Checked -or ([System.IO.Path]::GetExtension($p).ToLowerInvariant() -ne '.zip')
     if ($len -le $lim) {
@@ -2099,6 +2220,28 @@ function Start-Verify {
     finally { Set-ZsBusy $false }
 }
 
+function Start-Resend {
+    if ($partsList.Items.Count -eq 0) { [void][System.Windows.Forms.MessageBox]::Show('Add the parts or their folder first.', 'AgentParcel'); return }
+    $dlg = New-Object System.Windows.Forms.OpenFileDialog
+    $dlg.Title = 'Choose the original file'
+    if ($dlg.ShowDialog() -ne 'OK') { return }
+    $inputs = @(); foreach ($i in $partsList.Items) { $inputs += [string]$i }
+    $script:ZsCancel = $false
+    Set-ZsBusy $true
+    Show-ZsLog 'Re-sending missing or corrupt parts...'
+    $bar.Value = 0
+    try {
+        $r = Invoke-ZsRegeneratePlain -Original $dlg.FileName -InputPaths $inputs
+        Show-ZsLog $r.Message
+        $bar.Value = 100
+        if ($r.Ok) { $statusLine.Text = 'Re-sent the missing parts.' } else { $statusLine.Text = 'Some parts are still needed.' }
+        $script:lastOut = $r.OutputDir
+        $openBtn.Enabled = $true
+    }
+    catch { Show-ZsCancelledOrError 'Re-send failed:' $_ }
+    finally { Set-ZsBusy $false }
+}
+
 function Start-FromItems([string[]]$Items, [bool]$ForceJoin) {
     if (-not $Items -or $Items.Count -eq 0) { return }
     if ($ForceJoin -or (Test-ZsLooksLikeParts $Items)) {
@@ -2156,6 +2299,7 @@ $outBrowse.Add_Click({
 })
 $joinBtn.Add_Click({ if (-not $script:busy) { Start-Join } })
 $verifyBtn.Add_Click({ if (-not $script:busy) { Start-Verify } })
+$resendBtn.Add_Click({ if (-not $script:busy) { Start-Resend } })
 $stopBtn.Add_Click({
     if ($script:busy) {
         $script:ZsCancel = $true
@@ -2226,7 +2370,7 @@ if ($env:AGENTPARCEL_LAYOUT_TEST -eq '1') {
             }
         }
     }
-    $btns = @($browse, $splitBtn, $addParts, $addFolder, $clearParts, $outBrowse, $verifyBtn, $joinBtn, $openBtn, $stopBtn) | ForEach-Object { '{0}={1}x{2}' -f $_.Text, $_.Width, $_.Height }
+    $btns = @($browse, $splitBtn, $addParts, $addFolder, $clearParts, $outBrowse, $verifyBtn, $resendBtn, $joinBtn, $openBtn, $stopBtn) | ForEach-Object { '{0}={1}x{2}' -f $_.Text, $_.Width, $_.Height }
     Write-Output ('scale {0}: buttons {1}' -f $script:S, ($btns -join '; '))
     if ($form.Icon) {
         foreach ($isz in 16, 32, 48) {

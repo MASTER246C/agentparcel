@@ -285,7 +285,7 @@ function Invoke-ZsVerify {
         return 53
     }
     $names = @($tools.result.tools | ForEach-Object { $_.name })
-    $need = @('inspect', 'split_zip', 'split_any_file', 'split_files', 'verify', 'rebuild', 'make_apps_bundle')
+    $need = @('inspect', 'split_zip', 'split_any_file', 'split_files', 'verify', 'regenerate_parts', 'rebuild', 'make_apps_bundle')
     $missing = @($need | Where-Object { $names -notcontains $_ })
     if ($missing.Count -gt 0) {
         Write-Host ('ERROR: tools missing: ' + ($missing -join ', '))

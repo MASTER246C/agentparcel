@@ -3,7 +3,7 @@ AgentParcel License 1.0
 
 Copyright (c) 2026 Chris Kalkowski - https://chriskalkowski.com
 Licensing questions and permissions: https://chriskalkowski.com
-Project site: https://agentparcel.net   (AgentParcel was formerly named ZipSplitter)
+Project site: https://agentparcel.net   (ZipSplitter was only an internal working name, and AgentParcel is not affiliated with or derived from any other project of that name.)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this
 software and associated documentation files (the "Software"), to deal in the Software

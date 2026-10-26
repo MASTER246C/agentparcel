@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import sys
+import zlib
 
 BYTES_NAME = "_agentparcel_bytes.json"
 ZIPSET_NAME = "_agentparcel_zipset.json"
@@ -70,22 +71,65 @@ def verify_parts(folder, parts):
     return missing, corrupt
 
 
-def report_bad(missing, corrupt):
+def report_bad(missing, corrupt, parts):
+    names = {int(p["part"]): p.get("name") or "" for p in parts}
     lines = []
     if missing:
         lines.append("Missing part(s): %s" % ", ".join(str(n) for n in missing))
     if corrupt:
         lines.append("Corrupt part(s): %s" % ", ".join(str(n) for n in corrupt))
+    bits = []
+    for n in list(missing) + list(corrupt):
+        bits.append(("part %s %s" % (n, names.get(int(n), ""))).strip())
+    if bits:
+        lines.append("Still needed: " + ", ".join(bits))
     text = "\n".join(lines)
     sys.stderr.write(text + "\n")
     return text
 
 
+def _plain_blocks(path, manifest):
+    comp = manifest.get("compression")
+    if not comp:
+        with open(path, "rb") as src:
+            while True:
+                block = src.read(BUF)
+                if not block:
+                    break
+                yield block
+        return
+    algo = str(comp.get("algorithm") or "")
+    if algo != "zlib":
+        raise SystemExit("Unsupported compression: %s" % algo)
+    dec = zlib.decompressobj()
+    with open(path, "rb") as src:
+        while True:
+            block = src.read(BUF)
+            if not block:
+                break
+            out = dec.decompress(block)
+            if out:
+                yield out
+    tail = dec.flush()
+    if tail:
+        yield tail
+
+
 def rebuild_bytes(folder, manifest):
+    if manifest.get("encryption"):
+        sys.stderr.write(
+            "This part set is encrypted (AES-256-GCM). rebuild.py cannot decrypt it\n"
+            "and will not write a file. The password is not stored in this folder.\n"
+            "Install AgentParcel with the cryptography package and rebuild there:\n"
+            "  pip install agentparcel[crypto]\n"
+            "Then run AgentParcel (or: python3 agentparcel.py --join this-folder)\n"
+            "and give the same password.\n"
+        )
+        return 2
     parts = sorted(manifest["parts"], key=lambda p: int(p["part"]))
     missing, corrupt = verify_parts(folder, parts)
     if missing or corrupt:
-        report_bad(missing, corrupt)
+        report_bad(missing, corrupt, parts)
         return 2
     original = manifest["originalName"]
     dest = unique_path(os.path.join(folder, original))
@@ -95,13 +139,9 @@ def rebuild_bytes(folder, manifest):
         with open(tmp, "wb") as out:
             for part in parts:
                 path = os.path.join(folder, part["name"])
-                with open(path, "rb") as src:
-                    while True:
-                        block = src.read(BUF)
-                        if not block:
-                            break
-                        out.write(block)
-                        whole.update(block)
+                for block in _plain_blocks(path, manifest):
+                    out.write(block)
+                    whole.update(block)
         digest = whole.hexdigest()
         expect = str(manifest["sha256"]).lower()
         if digest != expect or os.path.getsize(tmp) != int(manifest["originalSize"]):
@@ -120,7 +160,7 @@ def verify_zipset(folder, manifest):
     parts = sorted(manifest["parts"], key=lambda p: int(p["part"]))
     missing, corrupt = verify_parts(folder, parts)
     if missing or corrupt:
-        report_bad(missing, corrupt)
+        report_bad(missing, corrupt, parts)
         return 2
     print("All %d zip part file(s) match the manifest checksums." % len(parts))
     print("These are zip parts. Rebuild the original archive with AgentParcel")

@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+build/
 
 # build.py writes the platform trees, release zips, and checksums here.
 # The published packages are GitHub Release assets, not git files.

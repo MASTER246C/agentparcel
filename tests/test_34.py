@@ -10,9 +10,9 @@ import tempfile
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CORE = os.path.join(ROOT, "src", "agentparcel.core.py")
-MCP = os.path.join(ROOT, "src", "agentparcel_mcp.py")
-REBUILD = os.path.join(ROOT, "src", "rebuild.py")
+CORE = os.path.join(ROOT, "src", "agentparcel", "core.py")
+MCP = os.path.join(ROOT, "src", "agentparcel", "mcp.py")
+REBUILD = os.path.join(ROOT, "src", "agentparcel", "rebuild.py")
 
 
 def load_core():

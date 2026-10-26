@@ -91,6 +91,6 @@ What it does (identical to Windows)
 
 AI AGENTS (MCP)
   agentparcel_mcp.py is an MCP server (stdio, no extra packages) that lets AI agents split and
-  rebuild with tools (inspect, split_zip, split_any_file, split_files, verify, rebuild,
-  make_apps_bundle). It must stay
+  rebuild with tools (inspect, split_zip, split_any_file, split_files, verify,
+  regenerate_parts, rebuild, make_apps_bundle). It must stay
   next to agentparcel.py. Setup for Claude Desktop / Claude Code / Cursor / Codex: README-mcp.txt.
