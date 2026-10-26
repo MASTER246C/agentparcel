@@ -13,6 +13,9 @@ About the name
   They remain only for backward compatibility.
 
 Same program as the Windows version (AgentParcel.ps1), written in Python 3.
+It also byte-splits any file into numbered parts (exact original, SHA-256), verifies a set
+before rebuilding, and writes HOW-TO-REBUILD.txt plus rebuild.py into every split folder.
+The window has Verify and Stop. Stop reports Cancelled and deletes that run's partial output.
 Parts made on Windows can be rebuilt on Mac/Linux and the other way round - both
 use the same part labels and manifest (see README.txt from the Windows version,
 section "MANIFEST FORMAT").
@@ -55,19 +58,24 @@ Linux
   ~/.local/share/applications/ (then files can also be opened "with" AgentParcel).
 
 Using the window
-  Tab "Split a zip"         : Browse... to the zip, optionally change "Max size per zip (MB)"
-                              (default 19.5), "Unpack zips inside the zip (recommended)" and
-                              "Include AgentParcel apps ..." (writes AgentParcel-apps.zip with the
-                              Windows/Mac/Linux apps next to the parts - send it along), Split.
+  Tab "Split a zip"         : Browse... to a file, optionally change "Max size per zip (MB)"
+                              (default 19.5), "Unpack zips inside the zip (recommended)",
+                              "Include AgentParcel apps ..." and "Byte-split this file", then Split.
+                              A file that is not a zip is byte-split (exact bytes). Every split
+                              folder gets HOW-TO-REBUILD.txt and rebuild.py.
   Tab "Rebuild from parts"  : Add parts... (one part is enough) or Add folder..., optionally
-                              "Save to", Rebuild.
+                              "Save to", Verify, then Rebuild.
+  Stop                      : cancels the running job, deletes that run's partial output, and
+                              the status line says Cancelled.
   Drag-and-drop into the window only works if the optional 'tkinterdnd2' package is installed
   (pip install tkinterdnd2); otherwise use the buttons.
 
 Command line (same options as the Windows version)
   python3 agentparcel.py --no-gui [--limit-mb 19.5] [--no-unpack-inner] [--no-include-apps] [--output-dir DIR] file.zip
+  python3 agentparcel.py --no-gui --split-bytes movie.mp4
+  python3 agentparcel.py --verify FOLDER_OR_PART
   python3 agentparcel.py --join FOLDER_OR_PART [MORE_PARTS ...] [--output-dir DIR]
-     Windows equivalents: -NoGui, -LimitMB, -NoUnpackInner, -NoIncludeApps, -OutputDir, -Join
+     Windows equivalents: -NoGui, -LimitMB, -NoUnpackInner, -NoIncludeApps, -OutputDir, -SplitBytes, -Verify, -Join
 
 What it does (identical to Windows)
   Split : parts <name>_split/<name>_part01.zip ... each <= the limit and openable on its own.
@@ -83,5 +91,6 @@ What it does (identical to Windows)
 
 AI AGENTS (MCP)
   agentparcel_mcp.py is an MCP server (stdio, no extra packages) that lets AI agents split and
-  rebuild with tools (inspect, split_zip, split_files, rebuild, make_apps_bundle). It must stay
+  rebuild with tools (inspect, split_zip, split_any_file, split_files, verify, rebuild,
+  make_apps_bundle). It must stay
   next to agentparcel.py. Setup for Claude Desktop / Claude Code / Cursor / Codex: README-mcp.txt.

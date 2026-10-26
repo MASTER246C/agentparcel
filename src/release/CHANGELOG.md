@@ -8,6 +8,13 @@ AgentParcel is an independent project. It is not affiliated with, endorsed by, o
 
 Entries before 3.3.1 still use that working name for the files from our own development builds. The `_zipsplitter_*` marker files and the `ZIPSPLITTER_*` environment-variable fallbacks come from those builds, not from any other project named ZipSplitter. They remain only for backward compatibility.
 
+## 3.4.0 - 2026-10-26
+- **Split any file.** A file of any type (PDF, video, dataset, CAD, and so on) can be cut into numbered raw parts under a size cap and rebuilt to the exact original bytes. The whole file's SHA-256 is checked. The window has "Byte-split this file"; a file that is not a zip is byte-split automatically. The MCP tool is `split_any_file`. `rebuild` handles both zip part sets and byte-split sets.
+- **Verify.** Before rebuilding, check that every part is present and that each part's checksum matches the manifest. Missing parts and corrupt parts are named separately. The window has a Verify button. The MCP tool is `verify`.
+- **Agent-readable rebuild kit.** Every split folder includes `HOW-TO-REBUILD.txt` (plain text, for a person or a receiving agent, including a PowerShell equivalent for a byte split) and `rebuild.py` (Python 3 standard library only). `rebuild.py` checks checksums and reassembles a byte-split file. For zip parts it checks each part file against `_agentparcel_zipset.json` and tells you to use AgentParcel to reassemble the zip, because that manifest lives inside the parts.
+- **Stop.** The window has a Stop button. Split, package, and rebuild run so the window stays responsive. Stop cancels the job, deletes partial output from that run, and reports Cancelled. The MCP server honors a client `notifications/cancelled` and does not leave a half-written output.
+- Zip parts are unchanged: `_zipsplitter_part.json` and `_zipsplitter_manifest.json` are still the format, and `ZIPSPLITTER_*` environment-variable fallbacks still work. A 3.3.x set still rebuilds. New sidecars (`_agentparcel_bytes.json`, `_agentparcel_zipset.json`) are ignored by 3.3.x readers.
+
 ## 3.3.1 - 2026-10-25
 - **Public release name is AgentParcel.** ZipSplitter was only our internal working name. Before release we researched it, found another existing project already using that name, and switched. AgentParcel is not affiliated with, endorsed by, or derived from that project, and it does not use any of that project's code. All AgentParcel code was written from scratch for this project.
   - Files: AgentParcel.ps1, AgentParcel.bat, agentparcel.py, agentparcel_mcp.py, AgentParcel.command,

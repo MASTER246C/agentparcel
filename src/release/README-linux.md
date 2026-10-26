@@ -8,7 +8,8 @@
 *Project site: https://agentparcel.net*
 
 Splits a big `.zip` into smaller standalone zips (19.5 MB each by default) and rebuilds the original
-from them, checking it with SHA-256. Parts made on Windows, Mac or Linux rebuild on any of them.
+from them, checking it with SHA-256. It can also byte-split any file (PDF, video, dataset, and so on)
+into numbered parts and rebuild the exact original. Parts made on Windows, Mac or Linux rebuild on any of them.
 Needs Python 3.9+ (3.15 recommended). The window needs Tk; without Tk it runs in text mode.
 
 ## Contents
@@ -34,13 +35,17 @@ If a file isn't executable (e.g. it was copied through Windows): `chmod +x *.sh 
 ## Command line
 ```sh
 python3 agentparcel.py --no-gui --limit-mb 19.5 /path/big.zip          # -> /path/big_split/
-python3 agentparcel.py --join /path/big_split --output-dir /tmp/out     # rebuild + verify
+python3 agentparcel.py --no-gui --split-bytes /path/movie.mp4           # raw parts of any file
+python3 agentparcel.py --verify /path/big_split                         # missing and corrupt parts
+python3 agentparcel.py --join /path/big_split --output-dir /tmp/out     # zip set or byte-split
 ```
 Other options: `--output-dir DIR`, `--no-unpack-inner`, `--include-apps`, `--no-include-apps`, `--version`.
+Stop in the window cancels the job, deletes that run's partial output, and reports Cancelled.
+`HOW-TO-REBUILD.txt` and `rebuild.py` are written into every split folder.
 
 ## MCP server (AI agents)
-`mcp/agentparcel_mcp.py` gives Claude Code, Cursor and Codex CLI tools (`split_zip`,
-`split_files`, `rebuild`, `inspect`, `make_apps_bundle`) for files that are over an upload limit.
+`mcp/agentparcel_mcp.py` gives Claude Code, Cursor and Codex CLI tools (`inspect`, `split_zip`,
+`split_any_file`, `split_files`, `verify`, `rebuild`, `make_apps_bundle`) for files that are over an upload limit.
 Check it with `python3 mcp/agentparcel_mcp.py --list-tools`, then paste a snippet from
 `mcp/README-mcp.txt` with your real paths. (Claude Desktop has no official Linux build.)
 

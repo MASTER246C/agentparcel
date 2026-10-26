@@ -8,7 +8,8 @@
 *Project site: https://agentparcel.net*
 
 Splits a big `.zip` into smaller standalone zips (19.5 MB each by default) and rebuilds the original
-from them, checking it with SHA-256. Parts made on Windows, Mac or Linux rebuild on any of them.
+from them, checking it with SHA-256. It can also byte-split any file (PDF, video, dataset, and so on)
+into numbered parts and rebuild the exact original. Parts made on Windows, Mac or Linux rebuild on any of them.
 It needs nothing beyond Windows 10/11 and the Windows PowerShell 5.1 that comes with it.
 Python is only needed for the optional MCP server.
 
@@ -27,8 +28,12 @@ Python is only needed for the optional MCP server.
 1. Extract the whole zip: right-click > **Extract All...**. Don't run it from inside the zip.
 2. Double-click `AgentParcel.bat`.
 3. **Split**: choose a .zip, set the size limit and click Split. The parts go to `<name>_split\`.
+   A file that is not a zip, or "Byte-split this file", writes raw numbered parts of that file.
    Keep "Include AgentParcel apps" ticked if the receiver needs the program too.
-4. **Rebuild**: choose the parts folder (or any one part) and click Rebuild.
+   Every split folder also gets `HOW-TO-REBUILD.txt` and `rebuild.py`.
+4. **Verify** checks that every part is present and that each checksum matches, and names anything missing or corrupt.
+5. **Rebuild**: choose the parts folder (or any one part) and click Rebuild.
+6. **Stop** cancels a split or rebuild, deletes the partial output from that run, and reports Cancelled.
 
 If Windows shows "Windows protected your PC", click **More info > Run anyway**. The files are
 plain text scripts.
@@ -36,13 +41,15 @@ plain text scripts.
 ## Command line
 ```bat
 powershell -ExecutionPolicy Bypass -File AgentParcel.ps1 -NoGui -LimitMB 19.5 "C:\path\big.zip"
+powershell -ExecutionPolicy Bypass -File AgentParcel.ps1 -NoGui -SplitBytes "C:\path\movie.mp4"
+powershell -ExecutionPolicy Bypass -File AgentParcel.ps1 -Verify "C:\path\big_split"
 powershell -ExecutionPolicy Bypass -File AgentParcel.ps1 -Join "C:\path\big_split" -OutputDir "C:\out"
 ```
 Other options: `-OutputDir DIR`, `-NoUnpackInner`, `-IncludeApps`, `-NoIncludeApps`.
 
 ## MCP server (AI agents)
 Agents such as Claude Desktop, Claude Code, Cursor and Codex CLI can call the server's tools
-(`split_zip`, `split_files`, `rebuild`, `inspect`, `make_apps_bundle`) when a file is over an
+(`inspect`, `split_zip`, `split_any_file`, `split_files`, `verify`, `rebuild`, `make_apps_bundle`) when a file is over an
 upload limit.
 1. Double-click `Install-Python-for-AgentParcel.bat`. It:
    - looks for Python 3.15 and ignores the Microsoft Store `python.exe` shortcut;

@@ -6,14 +6,19 @@ AgentParcel is an independent project. It is not affiliated with, endorsed by, o
 
 | Package | Platform | Status |
 |---|---|---|
-| `AgentParcel-@@ZS_VERSION@@-windows.zip` | Windows 10/11 (PowerShell 5.1, included in Windows) | tested on the build box (pwsh) and parse-checked on Windows PowerShell 5.1 |
-| `AgentParcel-@@ZS_VERSION@@-linux.zip` | Linux with Python 3.9+ (Tk optional) | tested (CLI, GUI on a headless X server, MCP) |
-| `AgentParcel-@@ZS_VERSION@@-macos.zip` | macOS 11+ with Python 3.9+ | **UNTESTED - needs testing on a real Mac** (static checks and a Python run on Linux only) |
+| `AgentParcel-@@ZS_VERSION@@-windows.zip` | Windows 10/11 (PowerShell 5.1, included in Windows) | PowerShell source is in the package. The 3.4.0 PowerShell changes were not executed on Windows in this build |
+| `AgentParcel-@@ZS_VERSION@@-linux.zip` | Linux with Python 3.9+ (Tk optional) | unit tests for byte split, verify, rebuild.py, and cancel; MCP tools checked |
+| `AgentParcel-@@ZS_VERSION@@-macos.zip` | macOS 11+ with Python 3.9+ | **UNTESTED - needs testing on a real Mac** (same Python program as Linux; not run on Mac hardware) |
 
 Check a download:  `sha256sum -c SHA256SUMS.txt` (Linux), `shasum -a 256 -c SHA256SUMS.txt` (macOS),
 `Get-FileHash .\AgentParcel-@@ZS_VERSION@@-windows.zip` (Windows PowerShell).
 
 ## What's new
+- **3.4.0: split any file.** Byte-level split of any file type into numbered parts under a size cap, rebuilt to the exact original (SHA-256). Window checkbox, and MCP tool `split_any_file`. `rebuild` accepts zip part sets and byte-split sets.
+- **3.4.0: verify.** Before rebuilding, check that every part is present and that each checksum matches the manifest. Missing and corrupt parts are named. Window button, and MCP tool `verify`.
+- **3.4.0: rebuild without AgentParcel.** Every split folder includes `HOW-TO-REBUILD.txt` and a dependency-free `rebuild.py` (Python 3 standard library only). The text file includes a PowerShell equivalent for a byte split. `rebuild.py` reassembles a byte-split file and checks it. For zip parts it verifies part-file checksums; AgentParcel still reassembles the zip.
+- **3.4.0: Stop.** The window stays responsive during split and rebuild. Stop cancels the job, deletes partial output from that run, and reports Cancelled. The MCP server honors client cancellation and does not leave a half-written output.
+- 3.3.x parts and manifests still work. `_zipsplitter_*` marker files and `ZIPSPLITTER_*` fallbacks are unchanged.
 - **3.3.1: the public name is AgentParcel.** ZipSplitter was only our internal working name. AgentParcel is not affiliated with, endorsed by, or derived from any other project named ZipSplitter, and it does not use any of that project's code. All AgentParcel code was written from scratch for this project. New file names: AgentParcel.ps1/.bat, agentparcel.py,
   agentparcel_mcp.py, AgentParcel.command, agentparcel.sh, agentparcel.desktop, Install-Python-for-AgentParcel.bat,
   AgentParcel-apps.zip. MCP server name `agentparcel`, env var `AGENTPARCEL_MCP_ROOTS` (`ZIPSPLITTER_MCP_ROOTS` is still accepted, only as a compatibility fallback from our own development builds).

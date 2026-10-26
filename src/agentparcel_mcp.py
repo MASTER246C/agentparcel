@@ -172,7 +172,9 @@ def safe_name(name, fallback="files"):
     return name or fallback
 
 
-def get_limit(args):
+def get_limit(args, minimum=None):
+    if minimum is None:
+        minimum = MIN_LIMIT
     if args.get("max_bytes") is not None:
         try:
             limit = int(args["max_bytes"])
@@ -186,8 +188,8 @@ def get_limit(args):
         if not (mb > 0) or math.isinf(mb):
             raise ToolError("max_mb must be a positive number.")
         limit = int(math.floor(mb * MIB))
-    if limit < MIN_LIMIT:
-        raise ToolError("The size limit is too small (minimum 0.25 MB = 262144 bytes).")
+    if limit < minimum:
+        raise ToolError("The size limit is too small (minimum %d bytes)." % minimum)
     return limit
 
 
@@ -324,9 +326,10 @@ def cleanup_empty(d):
         pass
 
 
-def run_splitter(src, out_dir, limit, unpack, include_apps, cb):
+def run_splitter(src, out_dir, limit, unpack, include_apps, cb, job=None):
     try:
-        return zs.Splitter(src, out_dir, limit, unpack, cb, include_apps=include_apps).run()
+        return zs.Splitter(src, out_dir, limit, unpack, cb, include_apps=include_apps,
+                           should_cancel=(job.check if job else None)).run()
     except BaseException:
         cleanup_empty(out_dir)
         raise
@@ -342,7 +345,7 @@ def tool_split_zip(args, job):
     out_dir = unique_dir(os.path.join(parent, os.path.splitext(os.path.basename(src))[0] + "_split"))
     size = os.path.getsize(src)
     r = run_splitter(src, out_dir, limit, as_bool(args, "unpack_inner", True), as_bool(args, "include_apps", False),
-                     job.phase(0, 100))
+                     job.phase(0, 100), job)
     res = split_result(r, src, size)
     if size <= limit:
         res["notes"].insert(0, "The zip was already under the limit (%d <= %d bytes); it was split anyway." % (size, limit))
@@ -471,7 +474,7 @@ def tool_split_files(args, job):
         tmpzip = os.path.join(tmp, name + ".zip")
         count = _build_zip(entries, tmpzip, job, skipped)
         r = run_splitter(tmpzip, out_dir, limit, as_bool(args, "unpack_inner", True),
-                         as_bool(args, "include_apps", False), job.phase(30, 100))
+                         as_bool(args, "include_apps", False), job.phase(30, 100), job)
         in_bytes = sum(e[2] for e in files)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -529,8 +532,11 @@ def tool_rebuild(args, job):
     out = output_folder(args.get("output_dir"), None, as_bool(args, "create_output_dir", False))
     extract = as_bool(args, "extract", False)
     try:
-        r = zs.Joiner(items, out, job.phase(0, 90 if extract else 100)).run()
+        r = zs.rebuild(items, out, job.phase(0, 90 if extract else 100), job.check)
     except zs.ZsError as ex:
+        data = dict(getattr(ex, "data", None) or {})
+        if data.get("missing_parts") or data.get("corrupt_parts"):
+            raise ToolError(str(ex), data)
         m = _MISSING_RX.search(str(ex))
         if m:
             raise ToolError(str(ex), {
@@ -543,7 +549,7 @@ def tool_rebuild(args, job):
         "output_path": r["output"],
         "bytes": r["size"],
         "mode": r["mode"],
-        "verified": r["mode"] == "manifest",
+        "verified": r["mode"] in ("manifest", "bytes"),
         "parts_used": r["parts"],
         "entries": r["entries"],
         "files_verified": r["verified"],
@@ -552,7 +558,10 @@ def tool_rebuild(args, job):
         "warnings": list(r["warnings"]),
     }
     text = zs.format_join_summary(r).strip()
-    if extract:
+    if extract and r["mode"] == "bytes":
+        res["warnings"].append("extract applies to a rebuilt zip. This set was a byte split, so the output file is already the original.")
+        text += "\nextract was skipped: the output is already the original file."
+    elif extract:
         job.report(90, "Extracting")
         dest = unique_dir(os.path.splitext(r["output"])[0])
         n, bad = _safe_extract(r["output"], dest)
@@ -562,6 +571,82 @@ def tool_rebuild(args, job):
             res["warnings"].append("Skipped unsafe entry names while extracting: " + ", ".join(bad[:20]))
         text += "\nExtracted %d file(s) to %s" % (n, dest)
     return res, text
+
+
+def tool_split_any_file(args, job):
+    src = existing(args.get("path"), "path", "file")
+    limit = get_limit(args, 1)
+    parent = output_folder(args.get("output_dir"), os.path.dirname(src), as_bool(args, "create_output_dir", False))
+    out_dir = unique_dir(os.path.join(parent, os.path.basename(src) + "_split"))
+    try:
+        r = zs.split_any_file(src, out_dir, limit, job.phase(0, 100),
+                              include_apps=as_bool(args, "include_apps", False), should_cancel=job.check)
+    except BaseException:
+        cleanup_empty(out_dir)
+        raise
+    res = split_result(r, src, os.path.getsize(src))
+    res["mode"] = "bytes"
+    res["sha256"] = r.get("sha256")
+    for name in (zs.HOWTO_NAME, zs.REBUILD_SCRIPT_NAME, zs.BYTES_MANIFEST):
+        path = os.path.join(r["output_dir"], name)
+        if os.path.isfile(path) and path not in res["other_files"]:
+            res["other_files"].append(path)
+    res["how_to_rebuild"] = (
+        "Byte split of %s into raw parts, each <= %d bytes. The rebuilt file matches SHA-256 %s. "
+        "Call rebuild with this folder, or, with no AgentParcel install, run: python3 \"%s\". "
+        "%s in the folder explains that, and includes a PowerShell equivalent."
+        % (os.path.basename(src), limit, r.get("sha256"), os.path.join(r["output_dir"], zs.REBUILD_SCRIPT_NAME), zs.HOWTO_NAME))
+    if os.path.getsize(src) <= limit:
+        res["notes"].insert(0, "The file was already under the limit (%d <= %d bytes); it was split anyway." % (os.path.getsize(src), limit))
+    return res, split_summary(res)
+
+
+def tool_verify(args, job):
+    parts = args.get("parts")
+    if isinstance(parts, str):
+        parts = [parts]
+    if not isinstance(parts, list) or not parts:
+        raise ToolError("parts must be a folder, one part, or a list of part paths (absolute).")
+    items = [existing(p, "parts[%d]" % i) for i, p in enumerate(parts)]
+    report = zs.verify_parts(items, job.phase(0, 100), job.check)
+    data = {
+        "ok": bool(report["ok"]),
+        "format": report["format"],
+        "original_name": report["original_name"],
+        "part_count": report["part_count"],
+        "missing_parts": list(report["missing"]),
+        "missing_names": list(report["missing_names"]),
+        "corrupt_parts": list(report["corrupt"]),
+        "present_parts": list(report["present"]),
+    }
+    return data, report["message"] or ("OK" if report["ok"] else "Parts do not match.")
+
+
+def _byte_presence(manifest_path):
+    folder = os.path.dirname(manifest_path)
+    manifest = zs._load_manifest(manifest_path)
+    present, missing, missing_names = [], [], []
+    for part in manifest.get("parts") or []:
+        number = int(part["part"])
+        name = str(part["name"])
+        path = os.path.join(folder, name)
+        if os.path.isfile(path) and os.path.getsize(path) == int(part["size"]):
+            present.append(number)
+        else:
+            missing.append(number)
+            missing_names.append(name)
+    return {
+        "manifest": manifest_path,
+        "original_name": manifest.get("originalName"),
+        "original_bytes": manifest.get("originalSize"),
+        "sha256": manifest.get("sha256"),
+        "part_count": int(manifest.get("partCount") or len(manifest.get("parts") or [])),
+        "present_parts": present,
+        "missing_parts": missing,
+        "missing_names": missing_names,
+        "complete": not missing,
+        "note": "Sizes were checked. Call verify to compare every part's SHA-256.",
+    }
 
 
 def tool_make_apps_bundle(args, job):
@@ -657,6 +742,13 @@ def tool_inspect(args, job):
     limit = get_limit(args)
     res = {"ok": True, "path": p, "max_bytes": limit}
     if os.path.isdir(p):
+        byte_manifest = os.path.join(p, zs.BYTES_MANIFEST)
+        if os.path.isfile(byte_manifest):
+            info = _byte_presence(byte_manifest)
+            res.update({"kind": "byte_split", "byte_set": info, "recommended_tool": "rebuild" if info["complete"] else "verify"})
+            miss = (", MISSING " + ", ".join(info["missing_names"])) if info["missing_names"] else ""
+            return res, "Byte-split set for %s: %d/%d part(s)%s. Call verify for checksums." % (
+                info["original_name"], len(info["present_parts"]), info["part_count"], miss)
         sets, others = _set_report(p)
         if sets:
             res.update({"kind": "folder_with_parts", "part_sets": sets, "other_zips": others})
@@ -690,11 +782,19 @@ def tool_inspect(args, job):
     res["bytes"] = size
     res["fits_in_one_part"] = size <= limit
     if not zipfile.is_zipfile(p):
-        res.update({"kind": "file", "estimated_parts_max": _estimate(size, 1, 0, limit), "recommended_tool":
-                    "split_files" if size > limit else None,
-                    "note": "Not a zip. estimated_parts_max assumes it does not compress (video, images, archives)."})
-        return res, "File (not a zip), %d bytes: %s" % (size, "fits under the limit" if size <= limit else
-                                                         "about %d part(s) at most; use split_files" % res["estimated_parts_max"])
+        beside = os.path.join(os.path.dirname(p), zs.BYTES_MANIFEST)
+        if os.path.isfile(beside):
+            info = _byte_presence(beside)
+            res.update({"kind": "byte_part", "byte_set": info, "recommended_tool": "rebuild" if info["complete"] else "verify"})
+            return res, "File is in a byte-split set for %s (%d/%d parts present). Call verify, then rebuild." % (
+                info["original_name"], len(info["present_parts"]), info["part_count"])
+        res.update({"kind": "file", "estimated_parts_max": max(1, int(math.ceil(size / float(limit))) if size else 1),
+                    "recommended_tool": "split_any_file" if size > limit else None,
+                    "note": "Not a zip. split_any_file cuts the exact bytes into numbered parts (no compression). "
+                            "split_files packs it into zip parts instead."})
+        return res, "File (not a zip), %d bytes: %s" % (
+            size, "fits under the limit" if size <= limit else
+            "about %d raw part(s); use split_any_file" % res["estimated_parts_max"])
     kind, stub = _read_stub(p)
     if kind == "apps":
         res.update({"kind": "apps_bundle", "note": "AgentParcel-apps.zip (the apps; not a part, rebuild ignores it)."})
@@ -801,6 +901,20 @@ TOOLS = [
                                 _LIMIT_PROPS, _OUT_PROPS, _UNPACK_PROP, _APPS_PROP), ["path"]),
      "outputSchema": _SPLIT_OUT,
      "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}},
+    {"name": "split_any_file", "title": "Split any file into exact byte parts",
+     "description": "Byte-level split of ANY file (PDF, video, dataset, CAD, a zip you must not repack, and so on) into "
+                    "numbered raw parts, each <= max_mb / max_bytes. Parts are not zips. Rebuilding concatenates them "
+                    "and checks the original SHA-256. The output folder also contains _agentparcel_bytes.json, "
+                    "HOW-TO-REBUILD.txt, and a dependency-free rebuild.py (Python 3 standard library only) so a receiver "
+                    "can rebuild without AgentParcel. Use split_zip or split_files when you want standalone zip parts.",
+     "inputSchema": _obj(_merge({"path": {"type": "string", "description": "Absolute path of the file to split. Any type."}},
+                                {"max_mb": {"type": "number", "default": DEFAULT_MB, "minimum": 0,
+                                            "description": "Max size of each raw part in MiB. Default 19.5."},
+                                 "max_bytes": {"type": "integer", "minimum": 1,
+                                               "description": "Exact max size of each raw part in bytes. Overrides max_mb. Minimum 1."}},
+                                _OUT_PROPS, _APPS_PROP), ["path"]),
+     "outputSchema": _SPLIT_OUT,
+     "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}},
     {"name": "split_files", "title": "Zip files/folders and split into parts",
      "description": "Use when files or folders that are not a .zip are too big to upload (a big log, video, dataset, "
                     "project folder, several files). Packs the inputs into <archive_name>.zip (folders keep their "
@@ -816,13 +930,28 @@ TOOLS = [
          _LIMIT_PROPS, _OUT_PROPS, _UNPACK_PROP, _APPS_PROP), ["paths"]),
      "outputSchema": _SPLIT_OUT,
      "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}},
+    {"name": "verify", "title": "Check parts before rebuilding",
+     "description": "Read-only check before rebuild. Confirms every part is present and each part's checksum matches "
+                    "the manifest. Works for zip part sets (_zipsplitter_manifest.json, and _agentparcel_zipset.json when "
+                    "that sidecar is present) and for byte-split sets (_agentparcel_bytes.json). Does not write a rebuilt "
+                    "file. ok is false when something is wrong; missing_parts, missing_names, and corrupt_parts name exactly "
+                    "which parts. A part that fails its SHA-256 is corrupt, not missing.",
+     "inputSchema": _obj({
+         "parts": {"type": "array", "items": {"type": "string"}, "minItems": 1,
+                   "description": "Absolute paths: the parts folder, one part, or all parts. A single string is also accepted."}},
+         ["parts"]),
+     "outputSchema": {"type": "object", "properties": {
+         "ok": {"type": "boolean"}, "missing_parts": {"type": "array"}, "missing_names": {"type": "array"},
+         "corrupt_parts": {"type": "array"}, "present_parts": {"type": "array"}}},
+     "annotations": {"readOnlyHint": True, "openWorldHint": False}},
     {"name": "rebuild", "title": "Rebuild the original from parts",
-     "description": "Rebuild the original zip from AgentParcel parts (made by this server or by any AgentParcel app). "
-                    "Give the folder with the parts, any single part (the others are found next to it), or an explicit "
-                    "list. Every file is verified (size + SHA-256). If parts are missing it fails and names exactly which "
-                    "(missing_parts / missing_names). AgentParcel-apps.zip is ignored. Output never overwrites: "
-                    "<name>_rebuilt.zip next to the parts, or <name>.zip in output_dir. extract=true also unpacks the "
-                    "rebuilt zip into a new folder.",
+     "description": "Rebuild the original from AgentParcel parts (made by this server or by any AgentParcel app). "
+                    "Zip part sets become the original zip (every file verified, size + SHA-256). A byte-split set "
+                    "(folder with _agentparcel_bytes.json, or any file in that folder) becomes the original file, byte for "
+                    "byte. Give the folder, any single part (the others are found next to it), or an explicit list. If parts "
+                    "are missing or corrupt it fails and names exactly which (missing_parts / missing_names / corrupt_parts). "
+                    "AgentParcel-apps.zip is ignored. Output never overwrites. extract=true unpacks a rebuilt zip into a new "
+                    "folder; it does not apply to a byte-split file.",
      "inputSchema": _obj({
          "parts": {"type": "array", "items": {"type": "string"}, "minItems": 1,
                    "description": "Absolute paths: a folder containing the parts, one part, or all parts. A single string is also accepted."},
@@ -842,15 +971,18 @@ TOOLS = [
      "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}},
 ]
 
-HANDLERS = {"inspect": tool_inspect, "split_zip": tool_split_zip, "split_files": tool_split_files,
-            "rebuild": tool_rebuild, "make_apps_bundle": tool_make_apps_bundle}
+HANDLERS = {"inspect": tool_inspect, "split_zip": tool_split_zip, "split_any_file": tool_split_any_file,
+            "split_files": tool_split_files, "verify": tool_verify, "rebuild": tool_rebuild,
+            "make_apps_bundle": tool_make_apps_bundle}
 
 INSTRUCTIONS = (
-    "AgentParcel splits big zips/files/folders into standalone .zip parts under an upload size limit and rebuilds "
-    "the original (verified). Typical flow: inspect(path) -> split_zip (for a .zip) or split_files (anything else) "
-    "-> upload every returned part path. To restore: rebuild(parts=[folder]). All paths must be absolute. "
-    "max_mb is MiB (19.5 default = 20,447,232 bytes); use max_bytes for an exact byte limit. Nothing is ever "
-    "overwritten or deleted.")
+    "AgentParcel splits big zips/files/folders into parts under an upload size limit and rebuilds the original "
+    "(verified). Typical flow: inspect(path) -> split_zip (a .zip, standalone zip parts) or split_any_file (any one "
+    "file, exact bytes, plus HOW-TO-REBUILD.txt and rebuild.py) or split_files (files/folders packed into zip parts) "
+    "-> upload every returned part path. Before rebuild, call verify(parts=[folder]); it names missing and corrupt "
+    "parts and writes nothing. To restore: rebuild(parts=[folder]) handles both zip sets and byte-split sets. "
+    "All paths must be absolute. max_mb is MiB (19.5 default = 20,447,232 bytes); use max_bytes for an exact byte "
+    "limit. Nothing is ever overwritten. A cancelled call deletes the partial output it had started.")
 
 
 # --- JSON-RPC / MCP server ------------------------------------------------------------------------

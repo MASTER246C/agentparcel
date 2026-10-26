@@ -45,6 +45,10 @@ APPS_NAME = "AgentParcel-apps.zip"
 APPS_MARKER = "_zipsplitter_apps.json"
 MANIFEST_NAME = "_zipsplitter_manifest.json"
 STUB_NAME = "_zipsplitter_part.json"
+BYTES_MANIFEST = "_agentparcel_bytes.json"
+ZIPSET_MANIFEST = "_agentparcel_zipset.json"
+HOWTO_NAME = "HOW-TO-REBUILD.txt"
+REBUILD_SCRIPT_NAME = "rebuild.py"
 COPY_BUF = 1 << 20
 ZIP64_FORCE = 0x7FFF0000          # entries this big (or bigger) are written with zip64 headers
 DEFAULT_LIMIT = int(19.5 * 1024 * 1024)
@@ -60,14 +64,26 @@ PAYLOAD = ""
 class ZsError(Exception):
     """A user-facing error (bad input, missing parts, verification failure...)."""
 
+    def __init__(self, message, data=None):
+        super().__init__(message)
+        self.data = data or {}
+
+
+class Cancelled(BaseException):
+    """The user or the MCP client stopped the job. Message is exactly 'Cancelled'."""
+
+    def __init__(self):
+        super().__init__("Cancelled")
+
 
 # ============================================================================
 # CORE: shared helpers
 # ============================================================================
 
 class Progress:
-    def __init__(self, callback=None):
+    def __init__(self, callback=None, should_cancel=None):
         self.cb = callback
+        self.should_cancel = should_cancel
         self.total = 1.0
         self.done = 0.0
         self.last = -1
@@ -78,6 +94,8 @@ class Progress:
         self.report()
 
     def report(self, msg=None):
+        if self.should_cancel and self.should_cancel():
+            raise Cancelled()
         if msg:
             self.msg = msg
         pct = int(max(0, min(100, math.floor(100.0 * self.done / max(1.0, self.total)))))
@@ -328,13 +346,16 @@ def append_text_entry(path, name, text):
 
 
 class Splitter:
-    def __init__(self, source, output_dir=None, limit=DEFAULT_LIMIT, unpack_inner=True, progress=None, include_apps=True):
+    def __init__(self, source, output_dir=None, limit=DEFAULT_LIMIT, unpack_inner=True, progress=None, include_apps=True, should_cancel=None):
         self.source = os.path.abspath(source)
         self.include_apps = bool(include_apps)
         self.output_dir = output_dir
         self.limit = int(limit)
         self.unpack = bool(unpack_inner)
-        self.prog = Progress(progress)
+        self.prog = Progress(progress, should_cancel)
+        self._owned = []
+        self._created_dir = False
+        self._out_dir = None
         self.m_entries = []
         self.m_archives = []
         self.counter = 0
@@ -342,6 +363,22 @@ class Splitter:
         self.unpacked = []
         self.failed = []
         self.tempdir = None
+
+    def _discard_owned(self):
+        for path in self._owned:
+            try:
+                if path and os.path.isfile(path):
+                    os.remove(path)
+            except OSError:
+                pass
+        self._owned = []
+        directory = self._out_dir
+        if self._created_dir and directory and os.path.isdir(directory):
+            try:
+                if not os.listdir(directory):
+                    os.rmdir(directory)
+            except OSError:
+                pass
 
     # ---- phase 1 ----
     def add_archive_items(self, zf, prefix, items, budget, unpack, depth, archive_id):
@@ -436,8 +473,11 @@ class Splitter:
             while os.path.isdir(out_dir) and os.listdir(out_dir):
                 out_dir = os.path.join(os.path.dirname(src), "%s_split (%d)" % (base, n))
                 n += 1
+        existed = os.path.isdir(out_dir)
         os.makedirs(out_dir, exist_ok=True)
         out_dir = os.path.abspath(out_dir)
+        self._out_dir = out_dir
+        self._created_dir = not existed
 
         limit = self.limit
         fixed = 22 + 56 + 20
@@ -530,6 +570,7 @@ class Splitter:
                     os.remove(t)
                 except OSError:
                     pass
+            self._discard_owned()
             raise
         finally:
             for z in self.opened:
@@ -543,48 +584,59 @@ class Splitter:
 
         digits = max(2, len(str(len(temp_parts))))
         final_names = ["%s_part%s.zip" % (base, str(k + 1).zfill(digits)) for k in range(len(temp_parts))]
-        for info in split_files:
-            first = final_names[info["parts"][0] - 1]
-            last = final_names[info["parts"][-1] - 1]
-            note = rejoin_text(info["name"], info["pieces"], first, last)
-            info["note"] = note
-            for it in info["text_items"]:
-                if it.kind == "blob" and it.name.endswith(".REJOIN.txt"):
-                    it.data = note.encode("utf-8")
-            write_part(info["text_part"], info["text_items"], Progress())
-
         results = []
-        for k, tmp in enumerate(temp_parts):
-            dest = os.path.join(out_dir, final_names[k])
-            if os.path.exists(dest):
-                raise ZsError("The output folder already contains " + final_names[k] + " - choose an empty folder.")
-            os.rename(tmp, dest)
-            stub = jdump({"format": "zipsplitter-part", "version": 1, "setId": set_id, "part": k + 1,
-                          "partCount": len(temp_parts), "originalName": os.path.basename(src), "tool": TOOL})
-            size = append_text_entry(dest, STUB_NAME, stub)
-            if size > limit:
-                raise ZsError("Internal error: %s exceeded the limit after adding the part label." % final_names[k])
-            results.append((dest, size))
-
-        if split_files:
-            with open(os.path.join(out_dir, "REJOIN_INSTRUCTIONS.txt"), "w", encoding="utf-8", newline="\n") as f:
-                f.write("Some files were too large for a single %.2f MB zip and were cut into pieces.\n" % (limit / 1048576.0))
-                f.write('AgentParcel ("Rebuild from parts") joins them automatically. To do it by hand:\n\n')
-                for info in split_files:
-                    f.write(info["note"] + "----------------------------------------\n")
-
+        owned = []
         apps = None
-        if self.include_apps:
-            self.prog.report("Adding " + APPS_NAME + "...")
-            try:
-                apps = write_apps_bundle(out_dir, limit)
-            except Exception as ex:
-                apps = (None, 0, "Apps bundle could not be created: %s" % ex)
+        try:
+            for info in split_files:
+                first = final_names[info["parts"][0] - 1]
+                last = final_names[info["parts"][-1] - 1]
+                note = rejoin_text(info["name"], info["pieces"], first, last)
+                info["note"] = note
+                for it in info["text_items"]:
+                    if it.kind == "blob" and it.name.endswith(".REJOIN.txt"):
+                        it.data = note.encode("utf-8")
+                write_part(info["text_part"], info["text_items"], Progress(should_cancel=self.prog.should_cancel))
+            for k, tmp in enumerate(temp_parts):
+                dest = os.path.join(out_dir, final_names[k])
+                if os.path.exists(dest):
+                    raise ZsError("The output folder already contains " + final_names[k] + " - choose an empty folder.")
+                os.rename(tmp, dest)
+                owned.append(dest)
+                stub = jdump({"format": "zipsplitter-part", "version": 1, "setId": set_id, "part": k + 1,
+                              "partCount": len(temp_parts), "originalName": os.path.basename(src), "tool": TOOL})
+                size = append_text_entry(dest, STUB_NAME, stub)
+                if size > limit:
+                    raise ZsError("Internal error: %s exceeded the limit after adding the part label." % final_names[k])
+                results.append((dest, size))
+            if split_files:
+                note_path = os.path.join(out_dir, "REJOIN_INSTRUCTIONS.txt")
+                with open(note_path, "w", encoding="utf-8", newline="\n") as f:
+                    f.write("Some files were too large for a single %.2f MB zip and were cut into pieces.\n" % (limit / 1048576.0))
+                    f.write('AgentParcel ("Rebuild from parts") joins them automatically. To do it by hand:\n\n')
+                    for info in split_files:
+                        f.write(info["note"] + "----------------------------------------\n")
+                owned.append(note_path)
+            if self.include_apps:
+                self.prog.report("Adding " + APPS_NAME + "...")
+                try:
+                    apps = write_apps_bundle(out_dir, limit)
+                except Exception as ex:
+                    apps = (None, 0, "Apps bundle could not be created: %s" % ex)
+                if apps and apps[0]:
+                    owned.append(apps[0])
+            kit = write_zip_kit(out_dir, os.path.basename(src), results, limit, set_id, self.prog)
+            owned.extend(kit)
+            self._owned.extend(owned)
+        except BaseException:
+            self._owned.extend(owned)
+            self._discard_owned()
+            raise
 
         self.prog.done = self.prog.total
         self.prog.report("Done.")
         return {"output_dir": out_dir, "parts": results, "split_files": split_files, "unpacked": list(self.unpacked),
-                "failed": list(self.failed), "set_id": set_id, "limit": limit, "apps": apps}
+                "failed": list(self.failed), "set_id": set_id, "limit": limit, "apps": apps, "mode": "zip"}
 
     def _write_pieces(self, item, out_dir, part_no, chunk_budget, temp_parts, split_files):
         ratio = max(0.05, float(item.comp) / max(1.0, float(item.length)))
@@ -652,6 +704,11 @@ def format_split_summary(r):
         lines += ["", "NOTE: %d file(s) were too big for one part and were cut into pieces (.001, .002, ...):" % len(r["split_files"])]
         lines += ["  %s  (%d pieces)" % (s["name"], len(s["pieces"])) for s in r["split_files"]]
         lines.append('"Rebuild from parts" joins them automatically (or see REJOIN_INSTRUCTIONS.txt).')
+    if r.get("mode") == "bytes":
+        lines += ["", "Byte split: the parts are raw pieces of the original file.",
+                  "HOW-TO-REBUILD.txt and rebuild.py in that folder rebuild it without AgentParcel."]
+    elif os.path.isfile(os.path.join(r["output_dir"], HOWTO_NAME)):
+        lines += ["", "HOW-TO-REBUILD.txt and rebuild.py are in that folder."]
     if r.get("apps"):
         path, size, note = r["apps"]
         if path:
@@ -715,6 +772,16 @@ def find_part_set(inputs):
 
 def looks_like_parts(inputs):
     """Used by the GUI / launchers to choose between Split and Rebuild."""
+    for p in inputs:
+        if not p:
+            continue
+        p = p.strip().strip('"')
+        if os.path.isdir(p) and os.path.isfile(os.path.join(p, BYTES_MANIFEST)):
+            return True
+        if os.path.isfile(p) and os.path.basename(p) == BYTES_MANIFEST:
+            return True
+        if os.path.isfile(p) and os.path.isfile(os.path.join(os.path.dirname(os.path.abspath(p)), BYTES_MANIFEST)):
+            return True
     inputs = [p for p in inputs if not is_apps_bundle_name(os.path.basename(p))]
     zips = 0
     for p in inputs:
@@ -743,10 +810,10 @@ def join_output_path(output_dir, parts_dir, original_name, rebuilt_suffix=True):
 
 
 class Joiner:
-    def __init__(self, inputs, output_dir=None, progress=None):
+    def __init__(self, inputs, output_dir=None, progress=None, should_cancel=None):
         self.inputs = list(inputs)
         self.output_dir = output_dir
-        self.prog = Progress(progress)
+        self.prog = Progress(progress, should_cancel)
         self.warnings = []
         self.index = {}
         self.by_archive = {}
@@ -984,9 +1051,12 @@ class Joiner:
 
 
 def format_join_summary(r):
-    lines = ["Rebuilt zip:", "  %s  (%.2f MB)" % (r["output"], r["size"] / 1048576.0),
+    kind = "file" if r["mode"] == "bytes" else "zip"
+    lines = ["Rebuilt %s:" % kind, "  %s  (%.2f MB)" % (r["output"], r["size"] / 1048576.0),
              "From %d part(s), %d entries." % (r["parts"], r["entries"])]
-    if r["mode"] == "manifest":
+    if r["mode"] == "bytes":
+        lines.append("SHA-256 of the rebuilt file matches the manifest.")
+    elif r["mode"] == "manifest":
         lines.append("All %d files verified (size + SHA-256 match the original)." % r["verified"])
         if r["inner_zips"]:
             lines.append("Re-created %d inner zip(s)." % r["inner_zips"])
@@ -1022,17 +1092,29 @@ def cli_done():
 
 
 def run_split_cli(paths, args):
+    limit = int(math.floor(args.limit_mb * 1024 * 1024))
     for p in paths:
-        r = Splitter(p, args.output_dir, int(math.floor(args.limit_mb * 1024 * 1024)), not args.no_unpack_inner, cli_progress(),
-                     include_apps=not args.no_include_apps).run()
+        raw = bool(getattr(args, "split_bytes", False)) or not p.lower().endswith(".zip")
+        if raw:
+            r = split_any_file(p, args.output_dir, limit, cli_progress(), include_apps=not args.no_include_apps)
+        else:
+            r = Splitter(p, args.output_dir, limit, not args.no_unpack_inner, cli_progress(),
+                         include_apps=not args.no_include_apps).run()
         cli_done()
         print(format_split_summary(r))
 
 
 def run_join_cli(paths, args):
-    r = Joiner(paths, args.output_dir, cli_progress()).run()
+    r = rebuild(paths, args.output_dir, cli_progress())
     cli_done()
     print(format_join_summary(r))
+
+
+def run_verify_cli(paths):
+    report = verify_parts(paths, cli_progress())
+    cli_done()
+    print(report["message"])
+    return 0 if report["ok"] else 1
 
 
 def run_auto_cli(paths, args):
@@ -1067,6 +1149,630 @@ def interactive_text_mode(args, reason):
             cli_done()
             print("ERROR: %s: %s" % (type(ex).__name__, ex))
         print("Drop another item and press Enter, or just press Enter to quit.")
+
+
+# ============================================================================
+# Byte-split any file, verify, and the standalone rebuild kit
+# ============================================================================
+
+def sha256_file(path, prog=None):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            block = f.read(COPY_BUF)
+            if not block:
+                break
+            h.update(block)
+            if prog is not None:
+                prog.add(len(block))
+    return h.hexdigest()
+
+
+def rebuild_script_text():
+    files = None
+    try:
+        files = get_payload_files()
+    except Exception:
+        files = None
+    if files and files.get("rebuild.py"):
+        text = files["rebuild.py"]
+        return text.replace("\r\n", "\n") if isinstance(text, str) else text.decode("utf-8").replace("\r\n", "\n")
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rebuild.py")
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read().replace("\r\n", "\n")
+
+
+def _ps_rebuild_snippet(original):
+    # A short PowerShell equivalent of rebuild.py for a byte-split set. It checks each part.
+    return (
+        "$m = Get-Content -Raw -LiteralPath '.\\_agentparcel_bytes.json' | ConvertFrom-Json\n"
+        "$dest = Join-Path (Get-Location) $m.originalName\n"
+        "$out = [System.IO.File]::Open($dest, 'CreateNew')\n"
+        "try {\n"
+        "  foreach ($p in ($m.parts | Sort-Object part)) {\n"
+        "    $in = [System.IO.File]::OpenRead((Join-Path (Get-Location) $p.name))\n"
+        "    $h = [System.Security.Cryptography.SHA256]::Create()\n"
+        "    $buf = New-Object byte[] 1048576\n"
+        "    while (($n = $in.Read($buf, 0, $buf.Length)) -gt 0) {\n"
+        "      [void]$h.TransformBlock($buf, 0, $n, $null, 0)\n"
+        "      $out.Write($buf, 0, $n)\n"
+        "    }\n"
+        "    [void]$h.TransformFinalBlock(@(), 0, 0)\n"
+        "    $hex = ([System.BitConverter]::ToString($h.Hash)).Replace('-', '').ToLowerInvariant()\n"
+        "    $in.Close()\n"
+        "    if ($hex -ne $p.sha256) { throw ('Corrupt part ' + $p.part + ' (' + $p.name + ')') }\n"
+        "  }\n"
+        "} finally { $out.Close() }\n"
+    )
+
+
+def how_to_text(mode, original, part_count, directory):
+    lines = [
+        "HOW TO REBUILD",
+        "==============",
+        "This folder was made by AgentParcel %s." % VERSION,
+        "Original file: %s" % original,
+        "Parts: %d" % part_count,
+        "",
+    ]
+    if mode == "bytes":
+        lines += [
+            "These numbered parts are raw pieces of that one file, in order.",
+            "Put every part in this folder, then rebuild it (SHA-256 checked) with either:",
+            "",
+            "  python3 rebuild.py",
+            "",
+            "or, from another directory:",
+            "",
+            "  python3 rebuild.py \"%s\"" % directory,
+            "",
+            "Python 3.9 or newer is enough. No packages to install.",
+            "The script writes the original file next to the parts and will not overwrite",
+            "a file that is already there.",
+            "",
+            "PowerShell equivalent (checks each part, then writes the original):",
+            "",
+            _ps_rebuild_snippet(original),
+            "AgentParcel can also rebuild this folder: open the app, Rebuild from parts,",
+            "and choose this folder. Or call the MCP tool rebuild.",
+        ]
+    else:
+        lines += [
+            "These are zip parts. Each one is a normal zip, and the set manifest is inside",
+            "the parts (_zipsplitter_part.json / _zipsplitter_manifest.json).",
+            "python3 rebuild.py checks that every part file's SHA-256 matches",
+            "_agentparcel_zipset.json. It does not reassemble the original zip.",
+            "",
+            "To get the original zip back, use AgentParcel:",
+            "  Windows: AgentParcel.bat  ->  Rebuild from parts",
+            "  macOS:   AgentParcel.command",
+            "  Linux:   ./agentparcel.sh",
+            "  or:      python3 agentparcel.py --join \"%s\"" % directory,
+            "",
+            "Every file inside is checked (size + SHA-256). If a part is missing, AgentParcel",
+            "names that part and does not write a partial zip.",
+            "Send AgentParcel-apps.zip along if it is here. It is not a part.",
+        ]
+    lines += [
+        "",
+        "Do not rename the part files. Do not skip a number.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def write_text_owned(directory, name, text):
+    path = os.path.join(directory, name)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text if text.endswith("\n") else text + "\n")
+    return path
+
+
+def write_kit_files(directory, mode, original, part_count):
+    howto = write_text_owned(directory, HOWTO_NAME, how_to_text(mode, original, part_count, directory))
+    script = write_text_owned(directory, REBUILD_SCRIPT_NAME, rebuild_script_text())
+    try:
+        os.chmod(script, 0o755)
+    except OSError:
+        pass
+    return [howto, script]
+
+
+def write_zip_kit(out_dir, original, results, limit, set_id, prog):
+    parts = []
+    for i, (path, size) in enumerate(results):
+        prog.report("Checksum part %d" % (i + 1))
+        parts.append({
+            "part": i + 1,
+            "name": os.path.basename(path),
+            "size": int(size if size is not None else os.path.getsize(path)),
+            "sha256": sha256_file(path, prog),
+        })
+    manifest = {
+        "format": "agentparcel-zipset",
+        "version": 1,
+        "originalName": original,
+        "partCount": len(parts),
+        "limitBytes": int(limit),
+        "setId": set_id,
+        "tool": TOOL,
+        "parts": parts,
+    }
+    path = write_text_owned(out_dir, ZIPSET_MANIFEST, json.dumps(manifest, indent=2, ensure_ascii=True))
+    return [path] + write_kit_files(out_dir, "zip", original, len(parts))
+
+
+def _part_names(original, count):
+    digits = max(2, len(str(count)))
+    return ["%s_part%s" % (original, str(i).zfill(digits)) for i in range(1, count + 1)]
+
+
+def split_any_file(source, output_dir=None, limit=DEFAULT_LIMIT, progress=None, include_apps=True, should_cancel=None):
+    """Split any file into raw numbered parts of at most `limit` bytes. The original bytes come back exactly."""
+    prog = Progress(progress, should_cancel)
+    source = os.path.abspath(source)
+    if not os.path.isfile(source):
+        raise ZsError("File not found: " + source)
+    limit = int(limit)
+    if limit < 1:
+        raise ZsError("Limit is too small.")
+    original = os.path.basename(source)
+    size = os.path.getsize(source)
+    part_count = max(1, int(math.ceil(size / float(limit)))) if size else 1
+    base_dir = os.path.dirname(source)
+    if not output_dir:
+        output_dir = os.path.join(base_dir, original + "_split")
+        n = 2
+        while os.path.isdir(output_dir) and os.listdir(output_dir):
+            output_dir = os.path.join(base_dir, "%s_split (%d)" % (original, n))
+            n += 1
+    existed = os.path.isdir(output_dir)
+    os.makedirs(output_dir, exist_ok=True)
+    output_dir = os.path.abspath(output_dir)
+    names = _part_names(original, part_count)
+    owned = []
+    whole = hashlib.sha256()
+    prog.total = max(1.0, float(size))
+    set_id = uuid.uuid4().hex
+    parts_meta = []
+    try:
+        with open(source, "rb") as src:
+            for index, name in enumerate(names, start=1):
+                prog.report("Writing part %d of %d" % (index, part_count))
+                dest = os.path.join(output_dir, name)
+                if os.path.exists(dest):
+                    raise ZsError("The output folder already contains " + name)
+                part_hash = hashlib.sha256()
+                remaining = limit
+                written = 0
+                with open(dest, "wb") as out:
+                    owned.append(dest)
+                    while remaining > 0:
+                        block = src.read(min(COPY_BUF, remaining))
+                        if not block:
+                            break
+                        out.write(block)
+                        part_hash.update(block)
+                        whole.update(block)
+                        written += len(block)
+                        remaining -= len(block)
+                        prog.add(len(block))
+                parts_meta.append({
+                    "part": index,
+                    "name": name,
+                    "size": written,
+                    "sha256": part_hash.hexdigest(),
+                    "offset": sum(p["size"] for p in parts_meta),
+                })
+                if size and written == 0:
+                    break
+        manifest = {
+            "format": "agentparcel-bytes",
+            "version": 1,
+            "originalName": original,
+            "originalSize": size,
+            "sha256": whole.hexdigest(),
+            "limitBytes": limit,
+            "partCount": len(parts_meta),
+            "setId": set_id,
+            "tool": TOOL,
+            "parts": parts_meta,
+        }
+        manifest_path = write_text_owned(output_dir, BYTES_MANIFEST, json.dumps(manifest, indent=2, ensure_ascii=True))
+        owned.append(manifest_path)
+        owned.extend(write_kit_files(output_dir, "bytes", original, len(parts_meta)))
+        apps = None
+        if include_apps:
+            prog.report("Adding " + APPS_NAME + "...")
+            try:
+                apps = write_apps_bundle(output_dir, max(limit, 1 << 62))
+            except Exception as ex:
+                apps = (None, 0, "Apps bundle could not be created: %s" % ex)
+            if apps and apps[0]:
+                owned.append(apps[0])
+        prog.done = prog.total
+        prog.report("Done.")
+        results = [(os.path.join(output_dir, p["name"]), p["size"]) for p in parts_meta]
+        return {
+            "output_dir": output_dir, "parts": results, "split_files": [], "unpacked": [], "failed": [],
+            "set_id": set_id, "limit": limit, "apps": apps, "mode": "bytes",
+            "sha256": manifest["sha256"], "manifest": manifest_path,
+        }
+    except BaseException:
+        for path in owned:
+            try:
+                if path and os.path.isfile(path):
+                    os.remove(path)
+            except OSError:
+                pass
+        if not existed:
+            try:
+                if os.path.isdir(output_dir) and not os.listdir(output_dir):
+                    os.rmdir(output_dir)
+            except OSError:
+                pass
+        raise
+
+
+def _locate_named(inputs, filename):
+    for raw in inputs:
+        if not raw:
+            continue
+        path = os.path.abspath(raw.strip().strip('"'))
+        if os.path.isdir(path):
+            cand = os.path.join(path, filename)
+            if os.path.isfile(cand):
+                return cand
+        elif os.path.isfile(path):
+            if os.path.basename(path) == filename:
+                return path
+            cand = os.path.join(os.path.dirname(path), filename)
+            if os.path.isfile(cand):
+                return cand
+    return None
+
+
+def locate_byte_manifest(inputs):
+    return _locate_named(inputs, BYTES_MANIFEST)
+
+
+def _load_manifest(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return json.loads(f.read())
+
+
+def _verify_report(fmt, original, part_count, missing, missing_names, corrupt, present):
+    ok = not missing and not corrupt
+    lines = []
+    if ok:
+        lines.append("OK: all %d part(s) of %s are present and match the manifest." % (part_count, original))
+    if missing:
+        lines.append("Missing part(s): %s" % ", ".join(str(n) for n in missing))
+        if missing_names:
+            lines.append("(" + ", ".join(missing_names) + ")")
+    if corrupt:
+        for item in corrupt:
+            lines.append("Corrupt part %s (%s): %s" % (item.get("part"), item.get("name"), item.get("reason")))
+    return {
+        "ok": ok,
+        "format": fmt,
+        "original_name": original,
+        "part_count": part_count,
+        "missing": list(missing),
+        "missing_names": list(missing_names),
+        "corrupt": list(corrupt),
+        "present": list(present),
+        "message": "\n".join(lines),
+    }
+
+
+def verify_bytes_at(manifest_path, progress=None, should_cancel=None):
+    prog = Progress(progress, should_cancel)
+    folder = os.path.dirname(manifest_path)
+    manifest = _load_manifest(manifest_path)
+    parts = sorted(manifest.get("parts") or [], key=lambda p: int(p["part"]))
+    part_count = int(manifest.get("partCount") or len(parts))
+    original = str(manifest.get("originalName") or "")
+    by_num = {int(p["part"]): p for p in parts}
+    missing, missing_names, corrupt, present = [], [], [], []
+    width = max(2, len(str(part_count or 1)))
+    prog.total = max(1.0, float(manifest.get("originalSize") or 1))
+    for number in range(1, part_count + 1):
+        prog.report("Checking part %d" % number)
+        meta = by_num.get(number)
+        name = meta["name"] if meta else "%s_part%s" % (original, str(number).zfill(width))
+        path = os.path.join(folder, name)
+        if not os.path.isfile(path):
+            missing.append(number)
+            missing_names.append(name)
+            continue
+        present.append(number)
+        size = os.path.getsize(path)
+        digest = sha256_file(path, prog)
+        if meta is None or size != int(meta["size"]) or digest != str(meta["sha256"]).lower():
+            corrupt.append({"part": number, "name": name, "reason": "SHA-256 or size does not match the manifest"})
+    return _verify_report("agentparcel-bytes", original, part_count, missing, missing_names, corrupt, present)
+
+
+def _stored_sources(index, stored):
+    if stored in index:
+        return [index[stored]]
+    for width in (3, 4, 5, 6):
+        first = stored + "." + "1".zfill(width)
+        if first in index:
+            found, k = [], 1
+            while (stored + "." + str(k).zfill(width)) in index:
+                found.append(index[stored + "." + str(k).zfill(width)])
+                k += 1
+            return found
+    return []
+
+
+def verify_zipset_files(manifest_path, progress=None, should_cancel=None):
+    """Checksum the zip part files listed in _agentparcel_zipset.json. Does not open the zips."""
+    prog = Progress(progress, should_cancel)
+    folder = os.path.dirname(manifest_path)
+    manifest = _load_manifest(manifest_path)
+    parts = sorted(manifest.get("parts") or [], key=lambda p: int(p["part"]))
+    part_count = int(manifest.get("partCount") or len(parts))
+    original = str(manifest.get("originalName") or "")
+    missing, missing_names, corrupt, present = [], [], [], []
+    prog.total = max(1.0, float(sum(int(p.get("size") or 0) for p in parts)))
+    for part in parts:
+        number = int(part["part"])
+        name = str(part["name"])
+        prog.report("Checking part %d" % number)
+        path = os.path.join(folder, name)
+        if not os.path.isfile(path):
+            missing.append(number)
+            missing_names.append(name)
+            continue
+        present.append(number)
+        digest = sha256_file(path, prog)
+        if os.path.getsize(path) != int(part["size"]) or digest != str(part["sha256"]).lower():
+            corrupt.append({"part": number, "name": name, "reason": "SHA-256 or size does not match the manifest"})
+    return _verify_report("agentparcel-zipset", original, part_count, missing, missing_names, corrupt, present)
+
+
+def verify_zip_set(inputs, progress=None, should_cancel=None):
+    prog = Progress(progress, should_cancel)
+    files = find_part_set(inputs)
+    if not files:
+        side = _locate_named(inputs, ZIPSET_MANIFEST)
+        if side:
+            return verify_zipset_files(side, progress, should_cancel)
+        raise ZsError("No parts found.")
+    opened = []
+    try:
+        parts = []
+        unreadable = []
+        for path in files:
+            prog.report("Opening " + os.path.basename(path))
+            try:
+                zf = zipfile.ZipFile(path, "r")
+            except Exception:
+                info = part_info(os.path.basename(path))
+                number = info["number"] if info else None
+                unreadable.append({
+                    "part": number,
+                    "name": os.path.basename(path),
+                    "reason": "not a readable zip",
+                })
+                continue
+            if APPS_MARKER in zf.namelist():
+                zf.close()
+                continue
+            opened.append(zf)
+            stub = None
+            if STUB_NAME in zf.namelist():
+                try:
+                    stub = read_json_entry(zf, STUB_NAME)
+                except Exception:
+                    stub = None
+            parts.append({"path": path, "zip": zf, "stub": stub, "info": part_info(os.path.basename(path))})
+        if not parts:
+            if unreadable:
+                return _verify_report("zipsplitter-manifest", "", 0, [], [], unreadable, [])
+            raise ZsError("No parts found (only the AgentParcel-apps.zip bundle).")
+        labelled = [p for p in parts if p["stub"]]
+        if not labelled:
+            present = []
+            for p in parts:
+                if p["info"]:
+                    present.append(p["info"]["number"])
+            report = _verify_report("legacy", "", max(present or [0]), [], [], list(unreadable), sorted(present))
+            if report["ok"]:
+                report["message"] = ("Present part(s): %s. These parts have no manifest, so checksums cannot be checked."
+                                     % ", ".join(str(n) for n in report["present"]))
+            return report
+        first = labelled[0]["stub"]
+        set_id = str(first.get("setId"))
+        part_count = int(first.get("partCount") or 0)
+        original = str(first.get("originalName") or "")
+        use = {}
+        for p in parts:
+            if not p["stub"] or str(p["stub"].get("setId")) != set_id:
+                continue
+            number = int(p["stub"].get("part") or 0)
+            if number and number not in use:
+                use[number] = p
+        stem = os.path.splitext(original)[0]
+        width = max(2, len(str(part_count or 1)))
+        missing = [k for k in range(1, part_count + 1) if k not in use]
+        missing_names = ["%s_part%s.zip" % (stem, str(k).zfill(width)) for k in missing]
+        present = sorted(use)
+        manifest = None
+        for number in present:
+            zf = use[number]["zip"]
+            if MANIFEST_NAME in zf.namelist():
+                try:
+                    manifest = read_json_entry(zf, MANIFEST_NAME)
+                except Exception:
+                    corrupt_early = {
+                        "part": number,
+                        "name": os.path.basename(use[number]["path"]),
+                        "reason": "not a readable zip",
+                    }
+                    manifest = None
+                    # keep looking; a later part may still hold a readable copy
+                    use[number]["_unreadable"] = corrupt_early
+                else:
+                    break
+        corrupt = []
+        for number, p in use.items():
+            if p.get("_unreadable") and manifest is None:
+                corrupt.append(p["_unreadable"])
+        if manifest is None and not corrupt:
+            corrupt.append({"part": None, "name": MANIFEST_NAME, "reason": "manifest was not found in any present part"})
+        elif manifest is not None:
+            index = {}
+            part_of = {}
+            for number, p in use.items():
+                for zi in p["zip"].infolist():
+                    if zi.filename not in index:
+                        index[zi.filename] = (p["zip"], zi)
+                        part_of[zi.filename] = number
+            prog.total = max(1.0, float(sum(int(r.get("size") or 0) for r in manifest.get("entries", []) if r.get("type") == "file")))
+            for rec in manifest.get("entries", []):
+                if rec.get("type") != "file":
+                    continue
+                stored = rec.get("stored")
+                prog.report("Checking " + str(stored))
+                sources = _stored_sources(index, stored)
+                if not sources:
+                    if not missing:
+                        corrupt.append({"part": None, "name": stored, "reason": "file data is missing from the parts"})
+                    continue
+                h = hashlib.sha256()
+                total = 0
+                holders = []
+                broken = False
+                for zf, zi in sources:
+                    holders.append(part_of.get(zi.filename))
+                    try:
+                        src = zf.open(zi)
+                    except Exception:
+                        broken = True
+                        break
+                    with src:
+                        while True:
+                            block = src.read(COPY_BUF)
+                            if not block:
+                                break
+                            h.update(block)
+                            total += len(block)
+                            prog.add(len(block))
+                if broken:
+                    number = holders[0] if holders else None
+                    corrupt.append({
+                        "part": number,
+                        "name": os.path.basename(use[number]["path"]) if number in use else stored,
+                        "reason": "not a readable zip",
+                    })
+                    continue
+                expect_size = int(rec.get("size") or 0)
+                expect_hash = str(rec.get("sha256") or "").lower()
+                if total != expect_size or h.hexdigest() != expect_hash:
+                    number = holders[0] if holders else None
+                    corrupt.append({
+                        "part": number,
+                        "name": os.path.basename(use[number]["path"]) if number in use else stored,
+                        "reason": "SHA-256 or size does not match the manifest for " + str(stored),
+                    })
+        corrupt.extend(unreadable)
+        sidecar = os.path.join(os.path.dirname(parts[0]["path"]), ZIPSET_MANIFEST)
+        if os.path.isfile(sidecar):
+            side = _load_manifest(sidecar)
+            by_name = {os.path.basename(p["path"]): p for p in parts}
+            for rec in side.get("parts") or []:
+                prog.report("Checksum " + str(rec.get("name")))
+                name = str(rec.get("name"))
+                path = os.path.join(os.path.dirname(parts[0]["path"]), name)
+                if not os.path.isfile(path):
+                    continue
+                digest = sha256_file(path, prog)
+                if os.path.getsize(path) != int(rec.get("size") or -1) or digest != str(rec.get("sha256") or "").lower():
+                    holder = by_name.get(name)
+                    number = int(holder["stub"]["part"]) if holder and holder.get("stub") else rec.get("part")
+                    corrupt.append({"part": number, "name": name, "reason": "part file SHA-256 or size does not match _agentparcel_zipset.json"})
+        return _verify_report("zipsplitter-manifest", original, part_count, missing, missing_names, corrupt, present)
+    finally:
+        for zf in opened:
+            try:
+                zf.close()
+            except Exception:
+                pass
+
+
+def verify_parts(inputs, progress=None, should_cancel=None):
+    """Check parts without writing anything. Missing and corrupt parts are listed; this does not raise for them."""
+    manifest = locate_byte_manifest(inputs)
+    if manifest:
+        return verify_bytes_at(manifest, progress, should_cancel)
+    return verify_zip_set(inputs, progress, should_cancel)
+
+
+def rebuild_bytes(manifest_path, output_dir=None, progress=None, should_cancel=None):
+    prog = Progress(progress, should_cancel)
+    folder = os.path.dirname(manifest_path)
+    manifest = _load_manifest(manifest_path)
+    parts = sorted(manifest.get("parts") or [], key=lambda p: int(p["part"]))
+    bad = verify_bytes_at(manifest_path, progress, should_cancel)
+    if not bad["ok"]:
+        raise ZsError(bad["message"], {
+            "missing_parts": bad["missing"],
+            "missing_names": bad["missing_names"],
+            "corrupt_parts": bad["corrupt"],
+            "part_count": bad["part_count"],
+            "original_name": bad["original_name"],
+        })
+    original = str(manifest["originalName"])
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        dest = unique_path(os.path.join(os.path.abspath(output_dir), original))
+    else:
+        dest = unique_path(os.path.join(folder, original))
+    tmp = dest + ".partial"
+    prog.total = max(1.0, float(manifest.get("originalSize") or 1))
+    prog.done = 0
+    whole = hashlib.sha256()
+    try:
+        with open(tmp, "wb") as out:
+            for part in parts:
+                prog.report("Rebuilding part %s" % part["part"])
+                path = os.path.join(folder, part["name"])
+                with open(path, "rb") as src:
+                    while True:
+                        block = src.read(COPY_BUF)
+                        if not block:
+                            break
+                        out.write(block)
+                        whole.update(block)
+                        prog.add(len(block))
+        digest = whole.hexdigest()
+        if digest != str(manifest["sha256"]).lower() or os.path.getsize(tmp) != int(manifest["originalSize"]):
+            raise ZsError("Rebuilt file does not match the manifest SHA-256.")
+        os.rename(tmp, dest)
+    except BaseException:
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        raise
+    prog.report("Done.")
+    return {
+        "output": dest, "mode": "bytes", "parts": len(parts), "verified": 1, "inner_zips": 0,
+        "entries": 1, "joined": 0, "warnings": [], "size": os.path.getsize(dest),
+    }
+
+
+def rebuild(inputs, output_dir=None, progress=None, should_cancel=None):
+    """Rebuild either a byte-split file or a zip part set."""
+    manifest = locate_byte_manifest(inputs)
+    if manifest:
+        return rebuild_bytes(manifest, output_dir, progress, should_cancel)
+    return Joiner(inputs, output_dir, progress, should_cancel).run()
 
 
 # ============================================================================
@@ -1135,7 +1841,7 @@ def run_gui(args, start_items):
     BTN_W = 13
 
     events = queue.Queue()
-    state = {"busy": False, "last_out": None}
+    state = {"busy": False, "last_out": None, "cancel": threading.Event()}
 
     outer = ttk.Frame(root, padding=10)
     outer.pack(fill="both", expand=True)
@@ -1156,7 +1862,8 @@ def run_gui(args, start_items):
         return lab
 
     # ---- split tab ----
-    drop_label(tab_split, "Choose a .zip to split" + (" - or drag it here" if dnd else " (Browse...)")).grid(
+    drop_label(tab_split, "Choose a .zip, or any file to split into numbered byte parts"
+               + (" - or drag it here" if dnd else " (Browse...)")).grid(
         row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
     path_var = tk.StringVar()
     ttk.Entry(tab_split, textvariable=path_var).grid(row=1, column=0, sticky="ew", padx=(0, PAD))
@@ -1175,8 +1882,11 @@ def run_gui(args, start_items):
     chk_apps = ttk.Checkbutton(tab_split, text="Include AgentParcel apps (Windows, Mac, Linux) so the recipient can rebuild",
                                variable=apps_var)
     chk_apps.grid(row=4, column=0, columnspan=2, sticky="w", pady=2)
+    raw_var = tk.BooleanVar(value=False)
+    chk_raw = ttk.Checkbutton(tab_split, text="Byte-split this file (exact bytes, any file type)", variable=raw_var)
+    chk_raw.grid(row=5, column=0, columnspan=2, sticky="w", pady=2)
     btn_split = ttk.Button(tab_split, text="Split", width=BTN_W, style="Accent.TButton")
-    btn_split.grid(row=5, column=1, sticky="e", pady=(6, 0))
+    btn_split.grid(row=6, column=1, sticky="e", pady=(6, 0))
     tab_split.columnconfigure(0, weight=1)
 
     # ---- join tab ----
@@ -1204,8 +1914,12 @@ def run_gui(args, start_items):
     ttk.Entry(save, textvariable=out_var).pack(side="left", fill="x", expand=True, padx=(PAD, 0))
     btn_out = ttk.Button(tab_join, text="Browse...", width=BTN_W)
     btn_out.grid(row=2, column=1, sticky="e", pady=(8, 0))
-    btn_join = ttk.Button(tab_join, text="Rebuild", width=BTN_W, style="Accent.TButton")
-    btn_join.grid(row=3, column=1, sticky="e", pady=(6, 0))
+    join_row = ttk.Frame(tab_join)
+    join_row.grid(row=3, column=0, columnspan=2, sticky="e", pady=(6, 0))
+    btn_verify = ttk.Button(join_row, text="Verify", width=BTN_W)
+    btn_verify.pack(side="left", padx=(0, PAD))
+    btn_join = ttk.Button(join_row, text="Rebuild", width=BTN_W, style="Accent.TButton")
+    btn_join.pack(side="left")
     tab_join.columnconfigure(0, weight=1)
 
     # ---- shared bottom ----
@@ -1215,8 +1929,10 @@ def run_gui(args, start_items):
     row.pack(fill="x")
     status_var = tk.StringVar()
     ttk.Label(row, textvariable=status_var, anchor="w").pack(side="left", fill="x", expand=True)
+    btn_stop = ttk.Button(row, text="Stop", width=BTN_W, state="disabled")
+    btn_stop.pack(side="right")
     btn_open = ttk.Button(row, text="Open folder", width=BTN_W, state="disabled")
-    btn_open.pack(side="right")
+    btn_open.pack(side="right", padx=(0, PAD))
     log_frame = ttk.Frame(outer)
     log_frame.pack(fill="both", expand=True, pady=(4, 0))
     log = tk.Text(log_frame, height=9, wrap="word", state="disabled", relief="solid", borderwidth=1)
@@ -1225,7 +1941,7 @@ def run_gui(args, start_items):
     log.pack(side="left", fill="both", expand=True)
     lsb.pack(side="right", fill="y")
 
-    controls = [btn_browse, limit_box, chk_unpack, chk_apps, btn_split, btn_add, btn_addf, btn_clear, btn_out, btn_join]
+    controls = [btn_browse, limit_box, chk_unpack, chk_apps, chk_raw, btn_split, btn_add, btn_addf, btn_clear, btn_out, btn_join, btn_verify]
 
     def set_log(text):
         log.configure(state="normal")
@@ -1237,6 +1953,7 @@ def run_gui(args, start_items):
         state["busy"] = on
         for c in controls:
             c.configure(state=("disabled" if on else "normal"))
+        btn_stop.configure(state=("normal" if on else "disabled"))
         if on:
             btn_open.configure(state="disabled")
 
@@ -1244,6 +1961,8 @@ def run_gui(args, start_items):
         try:
             result = job(lambda pct, msg: events.put(("progress", pct, msg)))
             events.put(("done", kind, result))
+        except Cancelled:
+            events.put(("cancelled", kind))
         except ZsError as ex:
             events.put(("error", kind, str(ex)))
         except Exception as ex:
@@ -1265,18 +1984,29 @@ def run_gui(args, start_items):
                         set_log(format_split_summary(r))
                         status_var.set("Done - some big files were cut into pieces (Rebuild joins them)." if r["split_files"]
                                        else "Done - %d part(s) created." % len(r["parts"]))
+                    elif ev[1] == "verify":
+                        set_log(r["message"] + "\n")
+                        status_var.set("Verified - all parts match." if r["ok"] else "Verify found missing or corrupt parts.")
+                        if state.get("verify_from"):
+                            src = state["verify_from"]
+                            state["last_out"] = src if os.path.isdir(src) else os.path.dirname(src)
                     else:
                         state["last_out"] = os.path.dirname(r["output"])
                         set_log(format_join_summary(r))
                         status_var.set("Done - rebuilt " + os.path.basename(r["output"]))
                     btn_open.configure(state="normal")
+                elif ev[0] == "cancelled":
+                    set_busy(False)
+                    bar["value"] = 0
+                    status_var.set("Cancelled")
+                    set_log("Cancelled\n")
                 elif ev[0] == "error":
                     set_busy(False)
                     status_var.set("Failed.")
                     log.configure(state="normal")
                     log.insert("end", "\nERROR: " + ev[2] + "\n")
                     log.configure(state="disabled")
-                    messagebox.showerror("AgentParcel", ("Split" if ev[1] == "split" else "Rebuild") + " failed:\n" + ev[2])
+                    messagebox.showerror("AgentParcel", {"split": "Split", "verify": "Verify"}.get(ev[1], "Rebuild") + " failed:\n" + ev[2])
         except queue.Empty:
             pass
         root.after(100, poll)
@@ -1286,36 +2016,46 @@ def run_gui(args, start_items):
             return
         p = path_var.get().strip().strip('"')
         if not p:
-            messagebox.showinfo("AgentParcel", "Choose a .zip file first.")
+            messagebox.showinfo("AgentParcel", "Choose a file first.")
             return
         if not os.path.isfile(p):
             messagebox.showinfo("AgentParcel", "File not found:\n" + p)
-            return
-        if not p.lower().endswith(".zip"):
-            messagebox.showinfo("AgentParcel", "That is not a .zip file.")
             return
         try:
             lim = int(math.floor(float(limit_var.get()) * 1024 * 1024))
         except ValueError:
             messagebox.showinfo("AgentParcel", "The size limit must be a number (MB).")
             return
+        raw = bool(raw_var.get()) or not (p.lower().endswith(".zip") and zipfile.is_zipfile(p))
         size = os.path.getsize(p)
-        if size <= lim and not messagebox.askyesno("AgentParcel", "This zip is already %.2f MB, which is under the limit. Split it anyway?" % (size / 1048576.0)):
+        if size <= lim and not messagebox.askyesno(
+                "AgentParcel", "This file is already %.2f MB, which is under the limit. Split it anyway?" % (size / 1048576.0)):
             return
-        set_busy(True)
-        set_log("Splitting " + p + "\n")
+        set_log(("Byte-splitting " if raw else "Splitting ") + p + "\n")
         bar["value"] = 0
         unpack, apps = bool(unpack_var.get()), bool(apps_var.get())
-        threading.Thread(target=worker, args=("split", lambda cb: Splitter(p, None, lim, unpack, cb, include_apps=apps).run()),
-                         daemon=True).start()
+
+        def maker(cb, stop):
+            if raw:
+                return split_any_file(p, None, lim, cb, include_apps=apps, should_cancel=stop)
+            return Splitter(p, None, lim, unpack, cb, include_apps=apps, should_cancel=stop).run()
+
+        begin("split", maker)
 
     def add_parts(items):
+        have = set(parts_list.get(0, "end"))
+        manifest = locate_byte_manifest(items)
+        if manifest:
+            folder = os.path.dirname(manifest)
+            if folder not in have:
+                parts_list.insert("end", folder)
+                have.add(folder)
         try:
             found = find_part_set(items)
         except ZsError as ex:
-            messagebox.showinfo("AgentParcel", str(ex))
+            if not manifest:
+                messagebox.showinfo("AgentParcel", str(ex))
             return
-        have = set(parts_list.get(0, "end"))
         for f in found:
             if f not in have and not is_apps_bundle_name(os.path.basename(f)):
                 parts_list.insert("end", f)
@@ -1328,10 +2068,27 @@ def run_gui(args, start_items):
             messagebox.showinfo("AgentParcel", "Add the part zips first (one part is enough).")
             return
         od = out_var.get().strip().strip('"') or None
-        set_busy(True)
         set_log("Rebuilding from %d part(s)...\n" % len(items))
         bar["value"] = 0
-        threading.Thread(target=worker, args=("join", lambda cb: Joiner(items, od, cb).run()), daemon=True).start()
+        begin("join", lambda cb, stop: rebuild(items, od, cb, stop))
+
+    def start_verify():
+        if state["busy"]:
+            return
+        items = list(parts_list.get(0, "end"))
+        if not items:
+            messagebox.showinfo("AgentParcel", "Add the parts or their folder first.")
+            return
+        state["verify_from"] = items[0]
+        set_log("Verifying %d item(s)...\n" % len(items))
+        bar["value"] = 0
+        begin("verify", lambda cb, stop: verify_parts(items, cb, stop))
+
+    def begin(kind, maker):
+        state["cancel"].clear()
+        set_busy(True)
+        threading.Thread(target=worker, args=(kind, lambda cb: maker(cb, lambda: state["cancel"].is_set())),
+                         daemon=True).start()
 
     def start_from_items(items, force_join=False):
         items = [i for i in items if i]
@@ -1349,7 +2106,7 @@ def run_gui(args, start_items):
             start_split()
 
     def browse():
-        f = filedialog.askopenfilename(title="Choose a zip to split", filetypes=[("Zip files", "*.zip"), ("All files", "*")])
+        f = filedialog.askopenfilename(title="Choose a file to split", filetypes=[("All files", "*"), ("Zip files", "*.zip")])
         if f:
             path_var.set(f)
 
@@ -1375,6 +2132,8 @@ def run_gui(args, start_items):
     btn_clear.configure(command=lambda: parts_list.delete(0, "end"))
     btn_out.configure(command=choose_out)
     btn_join.configure(command=start_join)
+    btn_verify.configure(command=start_verify)
+    btn_stop.configure(command=lambda: state["cancel"].set() or status_var.set("Cancelling..."))
     btn_open.configure(command=lambda: state["last_out"] and open_folder(state["last_out"]))
 
     if dnd is not None:
@@ -1425,9 +2184,11 @@ def run_gui(args, start_items):
 # ============================================================================
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="agentparcel", description="Split a zip into smaller standalone zips, or rebuild it from the parts.")
+    ap = argparse.ArgumentParser(prog="agentparcel", description="Split a zip or any file into smaller parts, or rebuild it from the parts.")
     ap.add_argument("paths", nargs="*", help="a .zip to split (or parts / a folder of parts to rebuild)")
-    ap.add_argument("--join", nargs="+", metavar="PART_OR_FOLDER", help="rebuild the original zip from these parts / this folder")
+    ap.add_argument("--join", nargs="+", metavar="PART_OR_FOLDER", help="rebuild the original from these parts / this folder (zip parts or a byte-split)")
+    ap.add_argument("--verify", nargs="+", metavar="PART_OR_FOLDER", help="check that every part is present and matches the manifest; write nothing")
+    ap.add_argument("--split-bytes", action="store_true", help="split the file as raw bytes even if it is a .zip")
     ap.add_argument("--limit-mb", type=float, default=19.5, help="max size of each part in MB (default 19.5)")
     ap.add_argument("--output-dir", help="where to put the parts / the rebuilt zip")
     ap.add_argument("--no-unpack-inner", action="store_true", help="keep zips inside the zip as plain files")
@@ -1441,6 +2202,8 @@ def main(argv=None):
         sys.stderr.write("Note: Python %d.%d works, but 3.11+ is recommended for very large (zip64, >4 GB) archives.\n" % sys.version_info[:2])
 
     try:
+        if args.verify:
+            return run_verify_cli(list(args.verify) + list(args.paths))
         if args.join:
             run_join_cli(list(args.join) + list(args.paths), args)
             return 0

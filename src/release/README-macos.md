@@ -13,7 +13,8 @@
 > report what happens.
 
 Splits a big `.zip` into smaller standalone zips (19.5 MB each by default) and rebuilds the original
-from them, checking it with SHA-256. Parts made on Windows, Mac or Linux rebuild on any of them.
+from them, checking it with SHA-256. It can also byte-split any file into numbered parts and rebuild
+the exact original. Parts made on Windows, Mac or Linux rebuild on any of them.
 Needs Python 3.9+ with Tk (the python.org installer includes Tk; 3.15 recommended).
 
 ## Contents
@@ -41,12 +42,14 @@ Needs Python 3.9+ with Tk (the python.org installer includes Tk; 3.15 recommende
 ## Command line
 ```sh
 python3 agentparcel.py --no-gui --limit-mb 19.5 ~/Downloads/big.zip
+python3 agentparcel.py --no-gui --split-bytes ~/Downloads/movie.mp4
+python3 agentparcel.py --verify ~/Downloads/big_split
 python3 agentparcel.py --join ~/Downloads/big_split --output-dir ~/Desktop
 ```
 
 ## MCP server (AI agents)
 `mcp/agentparcel_mcp.py` gives Claude Desktop, Claude Code, Cursor and Codex CLI tools
-(`split_zip`, `split_files`, `rebuild`, `inspect`, `make_apps_bundle`). Use the full python path:
+(`inspect`, `split_zip`, `split_any_file`, `split_files`, `verify`, `rebuild`, `make_apps_bundle`). Use the full python path:
 `/usr/local/bin/python3` (python.org) or `/opt/homebrew/bin/python3` (Homebrew on Apple silicon).
 Don't use `/usr/bin/python3`. Snippets are in `mcp/README-mcp.txt`.
 

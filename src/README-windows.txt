@@ -6,10 +6,14 @@ Every part is a normal zip that also opens on its own.
 
 HOW TO USE
 - Double-click AgentParcel.bat. The window has two tabs:
-    "Split a zip"         - drag a .zip in (or Browse...), then Split.
+    "Split a zip"         - drag a file in (or Browse...), then Split.
+                            A .zip becomes zip parts. Any other file, or the
+                            "Byte-split this file" box, becomes raw byte parts.
     "Rebuild from parts"  - drag in the parts, their folder, or just ONE part
-                            (the other <name>_partNN.zip files next to it are found
-                            automatically), then Rebuild.
+                            (the other parts next to it are found automatically),
+                            then Verify (checksums) or Rebuild.
+- Stop cancels a running split or rebuild, deletes that run's partial files,
+  and the status line says Cancelled. The window stays usable while work runs.
 - You can also drag things straight onto AgentParcel.bat: a normal zip is split,
   parts (or a folder of parts) are rebuilt.
 - "Max size per zip (MB)" defaults to 19.5.
@@ -67,6 +71,24 @@ NOTES
 - Password-protected/encrypted zips are not supported.
 - Inner zips are unpacked/rebuilt in a temporary folder (%TEMP%\AgentParcel_...) that
   is deleted when the job finishes. Needs free disk space about the size of the inner zips.
+
+BYTE SPLIT (any file type)
+- Tick "Byte-split this file", or choose a file that is not a .zip.
+  Command line: -NoGui -SplitBytes "C:\path\movie.mp4"
+  Output folder: <full file name>_split\  (for example movie.mp4_split)
+  Parts: movie.mp4_part01, movie.mp4_part02, ... raw bytes, each <= the limit.
+- _agentparcel_bytes.json records the original name, size, SHA-256, and each part's SHA-256.
+- HOW-TO-REBUILD.txt explains the rebuild for a person or another AI agent.
+  rebuild.py (Python 3, no packages) checks every part and writes the original file.
+  The text file also has a PowerShell equivalent.
+- Verify (window button, or -Verify "C:\path\movie.mp4_split") names missing and corrupt parts
+  and writes nothing. Rebuild refuses to write a file until every part matches.
+
+ZIP PART SIDECAR
+- A zip split still uses _zipsplitter_part.json and _zipsplitter_manifest.json inside the parts
+  (see MANIFEST FORMAT below). The folder also gets _agentparcel_zipset.json (SHA-256 of each
+  part file), HOW-TO-REBUILD.txt, and rebuild.py. rebuild.py only checks those part files.
+  Reassembling the zip is still AgentParcel's Rebuild.
 
 ==========================================================================================
 MANIFEST FORMAT (version 1) - for other implementations (macOS / Linux builds)

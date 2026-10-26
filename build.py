@@ -219,6 +219,7 @@ def main():
         "agentparcel.desktop": read("agentparcel.desktop"),
         "README-mac-linux.txt": sub(read("README-mac-linux.txt")),
         "HOW TO REBUILD.txt": read("HOW-TO-REBUILD.txt"),
+        "rebuild.py": read("rebuild.py"),
         "LICENSE.txt": read(os.path.join("release", "LICENSE.txt")).replace("\n", "\r\n"),
         "icon-AgentParcel.ico.b64": asset_b64("AgentParcel-small.ico"),
         "icon-agentparcel-64.png.b64": asset_b64("agentparcel-64.png"),

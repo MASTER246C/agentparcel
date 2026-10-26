@@ -14,15 +14,22 @@
   <a href="https://chriskalkowski.com">chriskalkowski.com</a>
 </p>
 
-**AgentParcel** lets AI agents hand off large files to other agents and cloud agents that enforce strict per-file upload limits. It splits a zip or a folder into size-capped parts, stores a SHA-256 for every file, and rebuilds the original on the other side. Parts made on Windows, macOS, and Linux rebuild on any of the three.
+**AgentParcel** lets AI agents hand off large files to other agents and cloud agents that enforce strict per-file upload limits. It splits a zip or a folder into size-capped zip parts, or byte-splits any single file (PDF, video, dataset, CAD, and so on) into numbered raw parts, stores a SHA-256, and rebuilds the original on the other side. Parts made on Windows, macOS, and Linux rebuild on any of the three.
 
 It ships three ways:
 
 - **Apps** for Windows, macOS, and Linux: a window, plus a command line.
-- A **stdio MCP server** (Python standard library only) with tools `inspect`, `split_zip`, `split_files`, `rebuild`, and `make_apps_bundle`.
+- A **stdio MCP server** (Python standard library only) with tools `inspect`, `split_zip`, `split_any_file`, `split_files`, `verify`, `rebuild`, and `make_apps_bundle`.
 - A **rebuild kit**. With "Include AgentParcel apps" left on, the split folder also gets `AgentParcel-apps.zip`: the Windows, Mac, and Linux programs, a short "how to rebuild" note, and the license. Send it with the parts so the receiving machine has the program.
 
-The default cap is **19.5 MiB** per part (19.5 × 1024 × 1024 = 20,447,232 bytes). When an upload limit is quoted in decimal megabytes — a "20 MB" cap that means 20,000,000 bytes — use 19 MB, or pass an exact `max_bytes`. Every part is an ordinary zip and opens on its own. Rebuild verifies each file's size and SHA-256, and it names any missing part before it writes anything.
+The default cap is **19.5 MiB** per part (19.5 × 1024 × 1024 = 20,447,232 bytes). When an upload limit is quoted in decimal megabytes — a "20 MB" cap that means 20,000,000 bytes — use 19 MB, or pass an exact `max_bytes`. Zip parts are ordinary zips and open on their own. A byte-split part is a raw slice of the original file. Rebuild checks SHA-256, and it names any missing or corrupt part before it writes anything.
+
+**3.4.0** adds four things on top of the 3.3.x zip format (those parts still rebuild):
+
+- **Split any file** into numbered parts under the cap, then rebuild the exact original.
+- **Verify** before rebuilding, and get the exact missing or corrupt part numbers.
+- **`HOW-TO-REBUILD.txt` and `rebuild.py`** in every split folder, so a receiving agent can rebuild a byte-split file with Python 3 and no AgentParcel install. The text file includes a PowerShell equivalent.
+- **Stop** in the window. It cancels the job, deletes that run's partial output, and reports Cancelled. The MCP server honors client cancellation the same way.
 
 <p align="center">
   <img alt="The AgentParcel window: Split a zip, and Rebuild from parts, with the neon icon in the title bar" src="tk-window-agentparcel-icon.png" width="720">
@@ -38,22 +45,22 @@ During development the working name was ZipSplitter. AgentParcel is an independe
 
 ## Downloads
 
-Get the tested packages from the [Releases](https://github.com/MASTER246C/agentparcel/releases) page. Current release: **[AgentParcel 3.3.1](https://github.com/MASTER246C/agentparcel/releases/tag/v3.3.1)**.
+Get the tested packages from the [Releases](https://github.com/MASTER246C/agentparcel/releases) page. Current release: **[AgentParcel 3.4.0](https://github.com/MASTER246C/agentparcel/releases/tag/v3.4.0)**.
 
 | Package | Platform |
 |---|---|
-| [AgentParcel-3.3.1-windows.zip](https://github.com/MASTER246C/agentparcel/releases/download/v3.3.1/AgentParcel-3.3.1-windows.zip) | Windows 10/11. The app is PowerShell 5.1, which Windows already includes. Python is only for the MCP server. |
-| [AgentParcel-3.3.1-linux.zip](https://github.com/MASTER246C/agentparcel/releases/download/v3.3.1/AgentParcel-3.3.1-linux.zip) | Linux with Python 3.9+ (3.15 recommended). The window needs Tk; without it the app runs in text mode. |
-| [AgentParcel-3.3.1-macos.zip](https://github.com/MASTER246C/agentparcel/releases/download/v3.3.1/AgentParcel-3.3.1-macos.zip) | macOS 11+ with Python 3.9+. **This build has not been tested on real Mac hardware yet.** |
-| [SHA256SUMS.txt](https://github.com/MASTER246C/agentparcel/releases/download/v3.3.1/SHA256SUMS.txt) | Checksums for the three zips. |
+| [AgentParcel-3.4.0-windows.zip](https://github.com/MASTER246C/agentparcel/releases/download/v3.4.0/AgentParcel-3.4.0-windows.zip) | Windows 10/11. The app is PowerShell 5.1, which Windows already includes. Python is only for the MCP server. |
+| [AgentParcel-3.4.0-linux.zip](https://github.com/MASTER246C/agentparcel/releases/download/v3.4.0/AgentParcel-3.4.0-linux.zip) | Linux with Python 3.9+ (3.15 recommended). The window needs Tk; without it the app runs in text mode. |
+| [AgentParcel-3.4.0-macos.zip](https://github.com/MASTER246C/agentparcel/releases/download/v3.4.0/AgentParcel-3.4.0-macos.zip) | macOS 11+ with Python 3.9+. **This build has not been tested on real Mac hardware yet.** |
+| [SHA256SUMS.txt](https://github.com/MASTER246C/agentparcel/releases/download/v3.4.0/SHA256SUMS.txt) | Checksums for the three zips. |
 
 ```text
-621116f5af753bba6dfe15b30223ae57db79a6dd7e30200ef53fe769978650f4  AgentParcel-3.3.1-windows.zip
-69768d6df417807141c8201e53a3766420f9a9631829b202b7c3c5be8734c48c  AgentParcel-3.3.1-linux.zip
-9462420a598604d4f31769a5fc8173bfa1c7ec352468646e899151bb46d82a88  AgentParcel-3.3.1-macos.zip
+6aeb0be145ac527825c95011ea208fef21dc17a960f593b7f0ee35b176bd5e12  AgentParcel-3.4.0-windows.zip
+6549b3c72755c41312c645e2c69d0787ec6b426c9235c844dc52cef53b31774f  AgentParcel-3.4.0-linux.zip
+4930257a8fc30740658f056198318028e63b02b8e11ecc4973cb7fae59edfe51  AgentParcel-3.4.0-macos.zip
 ```
 
-Check a download with `sha256sum -c SHA256SUMS.txt` (Linux), `shasum -a 256 -c SHA256SUMS.txt` (macOS), or `Get-FileHash .\AgentParcel-3.3.1-windows.zip` (Windows PowerShell).
+Check a download with `sha256sum -c SHA256SUMS.txt` (Linux), `shasum -a 256 -c SHA256SUMS.txt` (macOS), or `Get-FileHash .\AgentParcel-3.4.0-windows.zip` (Windows PowerShell).
 
 ## Quick start
 
@@ -62,13 +69,16 @@ Extract the zip first. Do not run the app from inside the archive.
 ### Windows
 
 1. Double-click `AgentParcel.bat`.
-2. **Split**: choose a `.zip`, set the size limit, and click Split. Parts go to `<name>_split\`. Leave "Include AgentParcel apps" ticked when the receiver needs the program.
-3. **Rebuild**: choose the parts folder, or any one part, and click Rebuild.
+2. **Split**: choose a `.zip`, set the size limit, and click Split. Parts go to `<name>_split\`. Leave "Include AgentParcel apps" ticked when the receiver needs the program. For any other file, or with "Byte-split this file", the parts are raw slices of that file (`<filename>_split\`).
+3. **Verify**, then **Rebuild**. Verify names missing and corrupt parts and writes nothing. Rebuild puts the original back.
+4. **Stop** cancels the job and reports Cancelled.
 
 If Windows shows "Windows protected your PC", click **More info**, then **Run anyway**. These are plain text scripts.
 
 ```bat
 powershell -ExecutionPolicy Bypass -File AgentParcel.ps1 -NoGui -LimitMB 19.5 "C:\path\big.zip"
+powershell -ExecutionPolicy Bypass -File AgentParcel.ps1 -NoGui -SplitBytes "C:\path\movie.mp4"
+powershell -ExecutionPolicy Bypass -File AgentParcel.ps1 -Verify "C:\path\big_split"
 powershell -ExecutionPolicy Bypass -File AgentParcel.ps1 -Join "C:\path\big_split" -OutputDir "C:\out"
 ```
 
@@ -77,7 +87,7 @@ You can also drag a zip or a part onto `AgentParcel.bat`. For the MCP server, do
 ### Linux
 
 ```sh
-unzip AgentParcel-3.3.1-linux.zip && cd AgentParcel-3.3.1-linux
+unzip AgentParcel-3.4.0-linux.zip && cd AgentParcel-3.4.0-linux
 ./install-deps.sh          # python3 and Tk, via apt/dnf/yum/pacman/zypper; it asks before sudo
 ./agentparcel.sh           # opens the window
 ```
@@ -99,7 +109,7 @@ This package has not been run on a real Mac yet. It is the same Python program a
 2. In Terminal:
 
 ```sh
-cd ~/Documents/AgentParcel-3.3.1-macos
+cd ~/Documents/AgentParcel-3.4.0-macos
 xattr -dr com.apple.quarantine .     # optional: skips the "unidentified developer" prompts
 ./install-python-macos.sh --check    # or without --check, to install Python 3.15
 ```
@@ -140,14 +150,14 @@ Each release zip has `mcp/README-mcp.txt` with snippets filled in for that platf
   "mcpServers": {
     "agentparcel": {
       "command": "/usr/bin/python3",
-      "args": ["/home/YOU/AgentParcel-3.3.1-linux/mcp/agentparcel_mcp.py"],
+      "args": ["/home/YOU/AgentParcel-3.4.0-linux/mcp/agentparcel_mcp.py"],
       "env": { "AGENTPARCEL_MCP_ROOTS": "/home/YOU" }
     }
   }
 }
 ```
 
-macOS uses `/usr/local/bin/python3` (python.org) or `/opt/homebrew/bin/python3` (Homebrew), and a path under `/Users/YOU/AgentParcel-3.3.1-macos/mcp/`. Windows uses the Python 3.15 `python.exe` and a path such as `C:\\Users\\YOU\\AgentParcel-3.3.1-windows\\mcp\\agentparcel_mcp.py`.
+macOS uses `/usr/local/bin/python3` (python.org) or `/opt/homebrew/bin/python3` (Homebrew), and a path under `/Users/YOU/AgentParcel-3.4.0-macos/mcp/`. Windows uses the Python 3.15 `python.exe` and a path such as `C:\\Users\\YOU\\AgentParcel-3.4.0-windows\\mcp\\agentparcel_mcp.py`.
 
 **Claude Desktop** — merge the same `mcpServers` object into the config, then restart the app.
 
@@ -159,7 +169,7 @@ macOS uses `/usr/local/bin/python3` (python.org) or `/opt/homebrew/bin/python3` 
 
 ```sh
 claude mcp add agentparcel --scope user --env AGENTPARCEL_MCP_ROOTS="$HOME" -- \
-  /usr/bin/python3 "$HOME/AgentParcel-3.3.1-linux/mcp/agentparcel_mcp.py"
+  /usr/bin/python3 "$HOME/AgentParcel-3.4.0-linux/mcp/agentparcel_mcp.py"
 ```
 
 **Codex CLI** — `~/.codex/config.toml` (on Windows, `%USERPROFILE%\.codex\config.toml`):
@@ -167,7 +177,7 @@ claude mcp add agentparcel --scope user --env AGENTPARCEL_MCP_ROOTS="$HOME" -- \
 ```toml
 [mcp_servers.agentparcel]
 command = "/usr/bin/python3"
-args = ["/home/YOU/AgentParcel-3.3.1-linux/mcp/agentparcel_mcp.py"]
+args = ["/home/YOU/AgentParcel-3.4.0-linux/mcp/agentparcel_mcp.py"]
 env = { AGENTPARCEL_MCP_ROOTS = "/home/YOU" }
 startup_timeout_sec = 20
 tool_timeout_sec = 1800

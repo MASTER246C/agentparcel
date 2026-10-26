@@ -25,6 +25,8 @@ param(
     [string]$OutputDir,
     [switch]$NoUnpackInner,
     [string[]]$Join,
+    [string[]]$Verify,
+    [switch]$SplitBytes,
     [switch]$IncludeApps,
     [switch]$NoIncludeApps,
     [switch]$NoGui
@@ -67,6 +69,11 @@ $script:ZsPayload = ''
 #==ZS-PAYLOAD-END==
 $script:ZsManifestName = '_zipsplitter_manifest.json'
 $script:ZsStubName = '_zipsplitter_part.json'
+$script:ZsBytesManifest = '_agentparcel_bytes.json'
+$script:ZsZipsetManifest = '_agentparcel_zipset.json'
+$script:ZsHowToName = 'HOW-TO-REBUILD.txt'
+$script:ZsRebuildScriptName = 'rebuild.py'
+$script:ZsCancel = $false
 
 # ============================================================================
 # CORE: shared helpers
@@ -79,6 +86,7 @@ $script:ZsLastPct = -1
 $script:ZsStatus = ''
 
 function Report-ZsProgress([string]$Message) {
+    if ($script:ZsCancel) { throw 'Cancelled' }
     if ($Message) { $script:ZsStatus = $Message }
     $pct = [int][Math]::Floor(100.0 * $script:ZsDoneWork / [Math]::Max(1.0, $script:ZsTotalWork))
     if ($pct -gt 100) { $pct = 100 }
@@ -87,6 +95,7 @@ function Report-ZsProgress([string]$Message) {
         $script:ZsLastPct = $pct
         & $script:ZsProgress $pct $script:ZsStatus
     }
+    if ($script:ZsCancel) { throw 'Cancelled' }
 }
 
 function Copy-ZsStream($Source, $Destination, $Hasher) {
@@ -515,6 +524,532 @@ function Expand-ZsInnerZip($Entry, [string]$Name, $SiblingNames, $Items, [long]$
     return $true
 }
 
+
+function Remove-ZsOwned($Owned, [string]$Directory, [bool]$CreatedDir) {
+    foreach ($p in @($Owned)) {
+        if ($p -and (Test-Path -LiteralPath $p)) {
+            Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+        }
+    }
+    if ($CreatedDir -and $Directory -and (Test-Path -LiteralPath $Directory -PathType Container)) {
+        if (@(Get-ChildItem -LiteralPath $Directory -Force -ErrorAction SilentlyContinue).Count -eq 0) {
+            Remove-Item -LiteralPath $Directory -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Get-ZsSha256File([string]$Path) {
+    $hasher = New-ZsHasher
+    $fs = [System.IO.File]::OpenRead($Path)
+    try { Copy-ZsStream $fs $null $hasher } finally { $fs.Dispose() }
+    return (Complete-ZsHasher $hasher)
+}
+
+function Write-ZsUtf8([string]$Path, [string]$Text) {
+    if (-not $Text.EndsWith("`n")) { $Text += "`n" }
+    $enc = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($Path, ($Text -replace "`r`n", "`n"), $enc)
+    return $Path
+}
+
+function Get-ZsRebuildScriptText {
+    $files = $null
+    try { $files = Get-ZsPayloadFiles } catch { $files = $null }
+    if ($files) {
+        $text = Get-ZsProp $files 'rebuild.py'
+        if ($text) { return ([string]$text) }
+    }
+    $sib = Join-Path (Split-Path -Parent $PSCommandPath) 'rebuild.py'
+    if (Test-Path -LiteralPath $sib -PathType Leaf) { return [System.IO.File]::ReadAllText($sib) }
+    throw 'rebuild.py was not found in the program payload or next to AgentParcel.ps1.'
+}
+
+function Get-ZsHowToText([string]$Mode, [string]$Original, [int]$PartCount, [string]$Directory) {
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine('HOW TO REBUILD')
+    [void]$sb.AppendLine('==============')
+    [void]$sb.AppendLine('This folder was made by AgentParcel ' + $script:ZsVersion + '.')
+    [void]$sb.AppendLine('Original file: ' + $Original)
+    [void]$sb.AppendLine('Parts: ' + $PartCount)
+    [void]$sb.AppendLine('')
+    if ($Mode -eq 'bytes') {
+        [void]$sb.AppendLine('These numbered parts are raw pieces of that one file, in order.')
+        [void]$sb.AppendLine('Put every part in this folder, then rebuild it (SHA-256 checked) with either:')
+        [void]$sb.AppendLine('')
+        [void]$sb.AppendLine('  python3 rebuild.py')
+        [void]$sb.AppendLine('')
+        [void]$sb.AppendLine('or, from another directory:')
+        [void]$sb.AppendLine('')
+        [void]$sb.AppendLine('  python3 rebuild.py "' + $Directory + '"')
+        [void]$sb.AppendLine('')
+        [void]$sb.AppendLine('Python 3.9 or newer is enough. No packages to install.')
+        [void]$sb.AppendLine('The script writes the original file next to the parts and will not overwrite')
+        [void]$sb.AppendLine('a file that is already there.')
+        [void]$sb.AppendLine('')
+        [void]$sb.AppendLine('PowerShell equivalent (checks each part, then writes the original):')
+        [void]$sb.AppendLine('')
+        [void]$sb.AppendLine(@'
+$m = Get-Content -Raw -LiteralPath '.\_agentparcel_bytes.json' | ConvertFrom-Json
+$dest = Join-Path (Get-Location) $m.originalName
+$out = [System.IO.File]::Open($dest, 'CreateNew')
+try {
+  foreach ($p in ($m.parts | Sort-Object part)) {
+    $in = [System.IO.File]::OpenRead((Join-Path (Get-Location) $p.name))
+    $h = [System.Security.Cryptography.SHA256]::Create()
+    $buf = New-Object byte[] 1048576
+    while (($n = $in.Read($buf, 0, $buf.Length)) -gt 0) {
+      [void]$h.TransformBlock($buf, 0, $n, $null, 0)
+      $out.Write($buf, 0, $n)
+    }
+    [void]$h.TransformFinalBlock(@(), 0, 0)
+    $hex = ([System.BitConverter]::ToString($h.Hash)).Replace('-', '').ToLowerInvariant()
+    $in.Close()
+    if ($hex -ne $p.sha256) { throw ('Corrupt part ' + $p.part + ' (' + $p.name + ')') }
+  }
+} finally { $out.Close() }
+'@)
+        [void]$sb.AppendLine('AgentParcel can also rebuild this folder: open the app, Rebuild from parts,')
+        [void]$sb.AppendLine('and choose this folder. Or call the MCP tool rebuild.')
+    } else {
+        [void]$sb.AppendLine('These are zip parts. Each one is a normal zip, and the set manifest is inside')
+        [void]$sb.AppendLine('the parts (_zipsplitter_part.json / _zipsplitter_manifest.json).')
+        [void]$sb.AppendLine('python3 rebuild.py checks that every part file SHA-256 matches')
+        [void]$sb.AppendLine('_agentparcel_zipset.json. It does not reassemble the original zip.')
+        [void]$sb.AppendLine('')
+        [void]$sb.AppendLine('To get the original zip back, use AgentParcel:')
+        [void]$sb.AppendLine('  Windows: AgentParcel.bat  ->  Rebuild from parts')
+        [void]$sb.AppendLine('  macOS:   AgentParcel.command')
+        [void]$sb.AppendLine('  Linux:   ./agentparcel.sh')
+        [void]$sb.AppendLine('  or:      python3 agentparcel.py --join "' + $Directory + '"')
+        [void]$sb.AppendLine('')
+        [void]$sb.AppendLine('Every file inside is checked (size + SHA-256). If a part is missing, AgentParcel')
+        [void]$sb.AppendLine('names that part and does not write a partial zip.')
+        [void]$sb.AppendLine('Send AgentParcel-apps.zip along if it is here. It is not a part.')
+    }
+    [void]$sb.AppendLine('')
+    [void]$sb.AppendLine('Do not rename the part files. Do not skip a number.')
+    [void]$sb.AppendLine('')
+    return $sb.ToString()
+}
+
+function Write-ZsKitFiles([string]$Directory, [string]$Mode, [string]$Original, [int]$PartCount) {
+    $howto = Write-ZsUtf8 (Join-Path $Directory $script:ZsHowToName) (Get-ZsHowToText $Mode $Original $PartCount $Directory)
+    $scriptPath = Write-ZsUtf8 (Join-Path $Directory $script:ZsRebuildScriptName) (Get-ZsRebuildScriptText)
+    return @($howto, $scriptPath)
+}
+
+function Write-ZsZipKit([string]$OutDir, [string]$Original, $Results, [long]$LimitBytes, [string]$SetId) {
+    $parts = New-Object System.Collections.Generic.List[string]
+    $i = 0
+    foreach ($p in @($Results)) {
+        $i++
+        Report-ZsProgress ('Checksum part ' + $i)
+        $name = [System.IO.Path]::GetFileName([string]$p.Path)
+        $sha = Get-ZsSha256File ([string]$p.Path)
+        $parts.Add((ConvertTo-ZsJsonObject @('part', $i, 'name', $name, 'size', ([long]$p.Size), 'sha256', $sha)))
+    }
+    $body = '{"format":"agentparcel-zipset","version":1'
+    $body += ',"originalName":' + (ConvertTo-ZsJsonValue $Original)
+    $body += ',"partCount":' + $parts.Count
+    $body += ',"limitBytes":' + $LimitBytes
+    $body += ',"setId":' + (ConvertTo-ZsJsonValue $SetId)
+    $body += ',"tool":' + (ConvertTo-ZsJsonValue $script:ZsToolName)
+    $body += ',"parts":[' + ($parts -join ',') + ']}'
+    $manifest = Write-ZsUtf8 (Join-Path $OutDir $script:ZsZipsetManifest) $body
+    $kit = Write-ZsKitFiles $OutDir 'zip' $Original $parts.Count
+    return @($manifest) + @($kit)
+}
+
+function Find-ZsByteManifest([string[]]$InputPaths) {
+    foreach ($raw in @($InputPaths)) {
+        if (-not $raw) { continue }
+        $p = $raw.Trim().Trim('"')
+        if (-not (Test-Path -LiteralPath $p)) { continue }
+        if (Test-Path -LiteralPath $p -PathType Container) {
+            $cand = Join-Path $p $script:ZsBytesManifest
+            if (Test-Path -LiteralPath $cand -PathType Leaf) { return (Resolve-Path -LiteralPath $cand).ProviderPath }
+        } else {
+            $full = (Resolve-Path -LiteralPath $p).ProviderPath
+            if ([System.IO.Path]::GetFileName($full) -eq $script:ZsBytesManifest) { return $full }
+            $cand = Join-Path ([System.IO.Path]::GetDirectoryName($full)) $script:ZsBytesManifest
+            if (Test-Path -LiteralPath $cand -PathType Leaf) { return (Resolve-Path -LiteralPath $cand).ProviderPath }
+        }
+    }
+    return $null
+}
+
+function New-ZsVerifyReport([string]$Format, [string]$Original, [int]$PartCount, $Missing, $MissingNames, $Corrupt, $Present) {
+    $ok = (@($Missing).Count -eq 0 -and @($Corrupt).Count -eq 0)
+    $lines = New-Object System.Collections.Generic.List[string]
+    if ($ok) { $lines.Add('OK: all ' + $PartCount + ' part(s) of ' + $Original + ' are present and match the manifest.') }
+    if (@($Missing).Count -gt 0) {
+        $lines.Add('Missing part(s): ' + (@($Missing) -join ', '))
+        if (@($MissingNames).Count -gt 0) { $lines.Add('(' + (@($MissingNames) -join ', ') + ')') }
+    }
+    foreach ($item in @($Corrupt)) {
+        if ($null -eq $item) { continue }
+        $lines.Add('Corrupt part ' + $item.Part + ' (' + $item.Name + '): ' + $item.Reason)
+    }
+    return (New-Object PSObject -Property @{
+        Ok = $ok; Format = $Format; OriginalName = $Original; PartCount = $PartCount
+        Missing = @($Missing); MissingNames = @($MissingNames); Corrupt = @($Corrupt); Present = @($Present)
+        Message = ($lines -join "`n")
+    })
+}
+
+function Invoke-ByteSplit {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [string]$OutputDir,
+        [long]$LimitBytes = [long](19.5 * 1024 * 1024),
+        [bool]$IncludeApps = $true,
+        [scriptblock]$OnProgress
+    )
+    if ($LimitBytes -lt 1) { throw 'Limit is too small.' }
+    $SourcePath = (Resolve-Path -LiteralPath $SourcePath).ProviderPath
+    $srcInfo = Get-Item -LiteralPath $SourcePath
+    $original = $srcInfo.Name
+    $size = [long]$srcInfo.Length
+    $partCount = 1
+    if ($size -gt 0) { $partCount = [long][Math]::Ceiling($size / [double]$LimitBytes) }
+    $createdDir = $false
+    if (-not $OutputDir) {
+        $OutputDir = Join-Path $srcInfo.DirectoryName ($original + '_split')
+        $n = 2
+        while ((Test-Path -LiteralPath $OutputDir) -and @(Get-ChildItem -LiteralPath $OutputDir -Force).Count -gt 0) {
+            $OutputDir = Join-Path $srcInfo.DirectoryName ($original + '_split (' + $n + ')')
+            $n++
+        }
+    }
+    if (-not (Test-Path -LiteralPath $OutputDir)) {
+        [void](New-Item -ItemType Directory -Path $OutputDir)
+        $createdDir = $true
+    }
+    $OutputDir = (Resolve-Path -LiteralPath $OutputDir).ProviderPath
+    $script:ZsProgress = $OnProgress
+    $script:ZsDoneWork = 0.0
+    $script:ZsLastPct = -1
+    $script:ZsTotalWork = [Math]::Max(1.0, [double]$size)
+    $digits = [Math]::Max(2, ([string]$partCount).Length)
+    $owned = New-Object System.Collections.Generic.List[string]
+    $results = New-Object System.Collections.Generic.List[object]
+    $src = $null
+    try {
+        $src = [System.IO.File]::OpenRead($SourcePath)
+        $whole = New-ZsHasher
+        $offset = [long]0
+        $partJson = New-Object System.Collections.Generic.List[string]
+        for ($i = 1; $i -le $partCount; $i++) {
+            Report-ZsProgress ('Writing part ' + $i + ' of ' + $partCount)
+            $name = $original + '_part' + ([string]$i).PadLeft($digits, '0')
+            $dest = Join-Path $OutputDir $name
+            if (Test-Path -LiteralPath $dest) { throw ('The output folder already contains ' + $name) }
+            $out = [System.IO.File]::Open($dest, [System.IO.FileMode]::CreateNew)
+            $owned.Add($dest)
+            $partHash = New-ZsHasher
+            $remaining = $LimitBytes
+            $written = [long]0
+            $buf = New-Object byte[] 1048576
+            try {
+                while ($remaining -gt 0) {
+                    $want = $buf.Length
+                    if ($want -gt $remaining) { $want = [int]$remaining }
+                    $nread = $src.Read($buf, 0, $want)
+                    if ($nread -le 0) { break }
+                    $out.Write($buf, 0, $nread)
+                    [void]$partHash.TransformBlock($buf, 0, $nread, $null, 0)
+                    [void]$whole.TransformBlock($buf, 0, $nread, $null, 0)
+                    $written += $nread
+                    $remaining -= $nread
+                    $script:ZsDoneWork += $nread
+                    Report-ZsProgress $null
+                }
+            } finally { $out.Dispose() }
+            $sha = Complete-ZsHasher $partHash
+            $partJson.Add((ConvertTo-ZsJsonObject @('part', $i, 'name', $name, 'size', $written, 'sha256', $sha, 'offset', $offset)))
+            $results.Add((New-Object PSObject -Property @{ Path = $dest; Size = $written }))
+            $offset += $written
+        }
+        $wholeSha = Complete-ZsHasher $whole
+        $setId = [guid]::NewGuid().ToString('N')
+        $body = '{"format":"agentparcel-bytes","version":1'
+        $body += ',"originalName":' + (ConvertTo-ZsJsonValue $original)
+        $body += ',"originalSize":' + $size
+        $body += ',"sha256":' + (ConvertTo-ZsJsonValue $wholeSha)
+        $body += ',"limitBytes":' + $LimitBytes
+        $body += ',"partCount":' + $results.Count
+        $body += ',"setId":' + (ConvertTo-ZsJsonValue $setId)
+        $body += ',"tool":' + (ConvertTo-ZsJsonValue $script:ZsToolName)
+        $body += ',"parts":[' + ($partJson -join ',') + ']}'
+        $owned.Add((Write-ZsUtf8 (Join-Path $OutputDir $script:ZsBytesManifest) $body))
+        foreach ($k in @(Write-ZsKitFiles $OutputDir 'bytes' $original $results.Count)) { $owned.Add($k) }
+        $apps = $null
+        if ($IncludeApps) {
+            Report-ZsProgress 'Adding AgentParcel-apps.zip...'
+            try { $apps = Write-ZsAppsBundle $OutputDir ([long]::MaxValue) }
+            catch { $apps = New-Object PSObject -Property @{ Path = $null; Size = 0; Note = ('Apps bundle could not be created: ' + $_.Exception.Message) } }
+            if ($apps -and $apps.Path) { $owned.Add([string]$apps.Path) }
+        }
+        $script:ZsDoneWork = $script:ZsTotalWork
+        Report-ZsProgress 'Done.'
+        return (New-Object PSObject -Property @{
+            OutputDir = $OutputDir; Parts = $results; SplitFiles = @(); LimitBytes = $LimitBytes
+            UnpackedZips = @(); UnpackFailed = @(); SetId = $setId; Apps = $apps; Mode = 'bytes'; Sha256 = $wholeSha
+        })
+    } catch {
+        Remove-ZsOwned $owned $OutputDir $createdDir
+        throw
+    } finally {
+        if ($src) { $src.Dispose() }
+    }
+}
+
+function Invoke-ZsVerifyBytes([string]$ManifestPath) {
+    $folder = [System.IO.Path]::GetDirectoryName($ManifestPath)
+    $manifest = ConvertFrom-ZsJson ([System.IO.File]::ReadAllText($ManifestPath))
+    $parts = @(Get-ZsProp $manifest 'parts')
+    $partCount = [int](Get-ZsProp $manifest 'partCount')
+    if ($partCount -lt 1) { $partCount = @($parts).Count }
+    $original = [string](Get-ZsProp $manifest 'originalName')
+    $script:ZsTotalWork = [Math]::Max(1.0, [double](Get-ZsProp $manifest 'originalSize'))
+    $script:ZsDoneWork = 0.0
+    $missing = New-Object System.Collections.Generic.List[int]
+    $missingNames = New-Object System.Collections.Generic.List[string]
+    $corrupt = New-Object System.Collections.Generic.List[object]
+    $present = New-Object System.Collections.Generic.List[int]
+    $byNum = @{}
+    foreach ($part in @($parts)) {
+        if ($null -eq $part) { continue }
+        $byNum[[int](Get-ZsProp $part 'part')] = $part
+    }
+    $width = [Math]::Max(2, ([string]$partCount).Length)
+    for ($number = 1; $number -le $partCount; $number++) {
+        Report-ZsProgress ('Checking part ' + $number)
+        $meta = $null
+        if ($byNum.ContainsKey($number)) { $meta = $byNum[$number] }
+        if ($meta) { $name = [string](Get-ZsProp $meta 'name') } else { $name = $original + '_part' + ([string]$number).PadLeft($width, '0') }
+        $path = Join-Path $folder $name
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            $missing.Add($number); $missingNames.Add($name); continue
+        }
+        $present.Add($number)
+        $size = [long](Get-Item -LiteralPath $path).Length
+        $digest = Get-ZsSha256File $path
+        $expectSize = if ($meta) { [long](Get-ZsProp $meta 'size') } else { -1 }
+        $expectHash = if ($meta) { ([string](Get-ZsProp $meta 'sha256')).ToLowerInvariant() } else { '' }
+        if ($size -ne $expectSize -or $digest -ne $expectHash) {
+            $corrupt.Add((New-Object PSObject -Property @{ Part = $number; Name = $name; Reason = 'SHA-256 or size does not match the manifest' }))
+        }
+    }
+    return (New-ZsVerifyReport 'agentparcel-bytes' $original $partCount $missing.ToArray() $missingNames.ToArray() $corrupt.ToArray() $present.ToArray())
+}
+
+function Invoke-ZsVerifyZip([string[]]$InputPaths) {
+    $files = @(Find-ZsPartSet $InputPaths)
+    if ($files.Count -eq 0) { throw 'No parts found.' }
+    $opened = New-Object System.Collections.Generic.List[object]
+    try {
+        $parts = New-Object System.Collections.Generic.List[object]
+        $unreadable = New-Object System.Collections.Generic.List[object]
+        foreach ($path in $files) {
+            Report-ZsProgress ('Opening ' + [System.IO.Path]::GetFileName($path))
+            $zf = $null
+            try { $zf = [System.IO.Compression.ZipFile]::OpenRead($path) }
+            catch {
+                $info = Get-ZsPartInfo ([System.IO.Path]::GetFileName($path))
+                $number = $null
+                if ($info) { $number = $info.Number }
+                $unreadable.Add((New-Object PSObject -Property @{ Part = $number; Name = [System.IO.Path]::GetFileName($path); Reason = 'not a readable zip' }))
+                continue
+            }
+            if ($zf.GetEntry($script:ZsAppsMarker)) { $zf.Dispose(); continue }
+            $opened.Add($zf)
+            $stub = $null
+            $stubEntry = $zf.GetEntry($script:ZsStubName)
+            if ($stubEntry) { try { $stub = Read-ZsJsonEntry $stubEntry } catch { $stub = $null } }
+            $parts.Add((New-Object PSObject -Property @{ Path = $path; Zip = $zf; Stub = $stub; Info = (Get-ZsPartInfo ([System.IO.Path]::GetFileName($path))) }))
+        }
+        if ($parts.Count -eq 0) {
+            if ($unreadable.Count -gt 0) { return (New-ZsVerifyReport 'zipsplitter-manifest' '' 0 @() @() $unreadable.ToArray() @()) }
+            throw 'No parts found (only the AgentParcel-apps.zip bundle).'
+        }
+        $labelled = @($parts | Where-Object { $_.Stub })
+        if ($labelled.Count -eq 0) {
+            $present = @($parts | Where-Object { $_.Info } | ForEach-Object { $_.Info.Number } | Sort-Object)
+            $report = New-ZsVerifyReport 'legacy' '' ([int](($present | Measure-Object -Maximum).Maximum)) @() @() $unreadable.ToArray() $present
+            if ($report.Ok) { $report.Message = 'Present part(s): ' + ($present -join ', ') + '. These parts have no manifest, so checksums cannot be checked.' }
+            return $report
+        }
+        $first = $labelled[0].Stub
+        $setId = [string](Get-ZsProp $first 'setId')
+        $partCount = [int](Get-ZsProp $first 'partCount')
+        $original = [string](Get-ZsProp $first 'originalName')
+        $use = @{}
+        foreach ($p in $parts) {
+            if (-not $p.Stub) { continue }
+            if ([string](Get-ZsProp $p.Stub 'setId') -ne $setId) { continue }
+            $number = [int](Get-ZsProp $p.Stub 'part')
+            if ($number -gt 0 -and -not $use.ContainsKey($number)) { $use[$number] = $p }
+        }
+        $stem = [System.IO.Path]::GetFileNameWithoutExtension($original)
+        $width = [Math]::Max(2, ([string]$partCount).Length)
+        $missing = @()
+        $missingNames = @()
+        for ($k = 1; $k -le $partCount; $k++) {
+            if (-not $use.ContainsKey($k)) {
+                $missing += $k
+                $missingNames += ($stem + '_part' + ([string]$k).PadLeft($width, '0') + '.zip')
+            }
+        }
+        $present = @($use.Keys | Sort-Object)
+        $manifest = $null
+        foreach ($number in $present) {
+            $entry = $use[$number].Zip.GetEntry($script:ZsManifestName)
+            if ($entry) { $manifest = Read-ZsJsonEntry $entry; break }
+        }
+        $corrupt = New-Object System.Collections.Generic.List[object]
+        foreach ($item in $unreadable) { $corrupt.Add($item) }
+        if (-not $manifest) {
+            $corrupt.Add((New-Object PSObject -Property @{ Part = $null; Name = $script:ZsManifestName; Reason = 'manifest was not found in any present part' }))
+        } else {
+            $index = @{}
+            $partOf = @{}
+            foreach ($number in $present) {
+                foreach ($zi in $use[$number].Zip.Entries) {
+                    if (-not $index.ContainsKey($zi.FullName)) { $index[$zi.FullName] = $zi; $partOf[$zi.FullName] = $number }
+                }
+            }
+            $entries = @(Get-ZsProp $manifest 'entries')
+            foreach ($rec in $entries) {
+                if ([string](Get-ZsProp $rec 'type') -ne 'file') { continue }
+                $stored = [string](Get-ZsProp $rec 'stored')
+                Report-ZsProgress ('Checking ' + $stored)
+                $sources = @()
+                if ($index.ContainsKey($stored)) { $sources = @($index[$stored]) }
+                else {
+                    foreach ($w in 3, 4, 5, 6) {
+                        $firstName = $stored + '.' + ('1'.PadLeft($w, '0'))
+                        if ($index.ContainsKey($firstName)) {
+                            $k = 1
+                            while ($index.ContainsKey($stored + '.' + ([string]$k).PadLeft($w, '0'))) {
+                                $sources += $index[$stored + '.' + ([string]$k).PadLeft($w, '0')]
+                                $k++
+                            }
+                            break
+                        }
+                    }
+                }
+                if ($sources.Count -eq 0) {
+                    if ($missing.Count -eq 0) {
+                        $corrupt.Add((New-Object PSObject -Property @{ Part = $null; Name = $stored; Reason = 'file data is missing from the parts' }))
+                    }
+                    continue
+                }
+                $hasher = New-ZsHasher
+                $total = [long]0
+                $holder = $partOf[$sources[0].FullName]
+                foreach ($zi in $sources) {
+                    $stream = $zi.Open()
+                    try { Copy-ZsStream $stream $null $hasher; $total += $zi.Length } finally { $stream.Dispose() }
+                }
+                $digest = Complete-ZsHasher $hasher
+                $expectSize = [long](Get-ZsProp $rec 'size')
+                $expectHash = ([string](Get-ZsProp $rec 'sha256')).ToLowerInvariant()
+                if ($total -ne $expectSize -or $digest -ne $expectHash) {
+                    $cname = $stored
+                    if ($use.ContainsKey([int]$holder)) { $cname = [System.IO.Path]::GetFileName($use[[int]$holder].Path) }
+                    $corrupt.Add((New-Object PSObject -Property @{ Part = $holder; Name = $cname; Reason = ('SHA-256 or size does not match the manifest for ' + $stored) }))
+                }
+            }
+        }
+        $side = Join-Path ([System.IO.Path]::GetDirectoryName($parts[0].Path)) $script:ZsZipsetManifest
+        if (Test-Path -LiteralPath $side -PathType Leaf) {
+            $sideObj = ConvertFrom-ZsJson ([System.IO.File]::ReadAllText($side))
+            foreach ($rec in @(Get-ZsProp $sideObj 'parts')) {
+                $name = [string](Get-ZsProp $rec 'name')
+                Report-ZsProgress ('Checksum ' + $name)
+                $path = Join-Path ([System.IO.Path]::GetDirectoryName($parts[0].Path)) $name
+                if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+                $digest = Get-ZsSha256File $path
+                $size = [long](Get-Item -LiteralPath $path).Length
+                if ($size -ne [long](Get-ZsProp $rec 'size') -or $digest -ne ([string](Get-ZsProp $rec 'sha256')).ToLowerInvariant()) {
+                    $corrupt.Add((New-Object PSObject -Property @{ Part = (Get-ZsProp $rec 'part'); Name = $name; Reason = 'part file SHA-256 or size does not match _agentparcel_zipset.json' }))
+                }
+            }
+        }
+        return (New-ZsVerifyReport 'zipsplitter-manifest' $original $partCount $missing $missingNames $corrupt.ToArray() $present)
+    } finally {
+        foreach ($z in $opened) { try { $z.Dispose() } catch { } }
+    }
+}
+
+function Invoke-ZsVerify {
+    param([string[]]$InputPaths, [scriptblock]$OnProgress)
+    $script:ZsProgress = $OnProgress
+    $script:ZsDoneWork = 0.0
+    $script:ZsLastPct = -1
+    $script:ZsTotalWork = 1.0
+    $manifest = Find-ZsByteManifest $InputPaths
+    if ($manifest) { return (Invoke-ZsVerifyBytes $manifest) }
+    return (Invoke-ZsVerifyZip $InputPaths)
+}
+
+function Invoke-ByteRebuild {
+    param([string]$ManifestPath, [string]$OutputDir, [scriptblock]$OnProgress)
+    $script:ZsProgress = $OnProgress
+    $script:ZsDoneWork = 0.0
+    $script:ZsLastPct = -1
+    $bad = Invoke-ZsVerifyBytes $ManifestPath
+    if (-not $bad.Ok) { throw $bad.Message }
+    $folder = [System.IO.Path]::GetDirectoryName($ManifestPath)
+    $manifest = ConvertFrom-ZsJson ([System.IO.File]::ReadAllText($ManifestPath))
+    $original = [string](Get-ZsProp $manifest 'originalName')
+    if ($OutputDir) {
+        if (-not (Test-Path -LiteralPath $OutputDir)) { [void](New-Item -ItemType Directory -Path $OutputDir) }
+        $dest = Get-ZsUniquePath (Join-Path ((Resolve-Path -LiteralPath $OutputDir).ProviderPath) $original)
+    } else {
+        $dest = Get-ZsUniquePath (Join-Path $folder $original)
+    }
+    $tmp = $dest + '.partial'
+    $script:ZsTotalWork = [Math]::Max(1.0, [double](Get-ZsProp $manifest 'originalSize'))
+    $script:ZsDoneWork = 0.0
+    $whole = New-ZsHasher
+    try {
+        $out = [System.IO.File]::Open($tmp, [System.IO.FileMode]::CreateNew)
+        try {
+            foreach ($part in @(Get-ZsProp $manifest 'parts')) {
+                Report-ZsProgress ('Rebuilding part ' + (Get-ZsProp $part 'part'))
+                $path = Join-Path $folder ([string](Get-ZsProp $part 'name'))
+                $inp = [System.IO.File]::OpenRead($path)
+                try { Copy-ZsStream $inp $out $whole } finally { $inp.Dispose() }
+            }
+        } finally { $out.Dispose() }
+        $digest = Complete-ZsHasher $whole
+        if ($digest -ne ([string](Get-ZsProp $manifest 'sha256')).ToLowerInvariant() -or (Get-Item -LiteralPath $tmp).Length -ne [long](Get-ZsProp $manifest 'originalSize')) {
+            throw 'Rebuilt file does not match the manifest SHA-256.'
+        }
+        Move-Item -LiteralPath $tmp -Destination $dest
+        $tmp = $null
+    } catch {
+        if ($tmp -and (Test-Path -LiteralPath $tmp)) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
+        throw
+    }
+    Report-ZsProgress 'Done.'
+    $count = @(@(Get-ZsProp $manifest 'parts')).Count
+    return (New-Object PSObject -Property @{
+        OutputPath = $dest; Mode = 'bytes'; PartCount = $count; Verified = 1; InnerZips = 0
+        Entries = 1; Joined = 0; Warnings = @(); Size = (Get-Item -LiteralPath $dest).Length
+    })
+}
+
+function Invoke-Rebuild {
+    param([string[]]$InputPaths, [string]$OutputDir, [scriptblock]$OnProgress)
+    $manifest = Find-ZsByteManifest $InputPaths
+    if ($manifest) { return (Invoke-ByteRebuild -ManifestPath $manifest -OutputDir $OutputDir -OnProgress $OnProgress) }
+    return (Invoke-ZipJoin -InputPaths $InputPaths -OutputDir $OutputDir -OnProgress $OnProgress)
+}
+
+
 function Invoke-ZipSplit {
     param(
         [Parameter(Mandatory = $true)][string]$SourcePath,
@@ -535,7 +1070,8 @@ function Invoke-ZipSplit {
             $n++
         }
     }
-    if (-not (Test-Path -LiteralPath $OutputDir)) { [void](New-Item -ItemType Directory -Path $OutputDir) }
+    $createdDir = -not (Test-Path -LiteralPath $OutputDir)
+    if ($createdDir) { [void](New-Item -ItemType Directory -Path $OutputDir) }
     $OutputDir = (Resolve-Path -LiteralPath $OutputDir).ProviderPath
 
     $script:ZsProgress = $OnProgress
@@ -697,6 +1233,11 @@ function Invoke-ZipSplit {
             $tempParts.Add($tmp)
         }
     }
+    catch {
+        foreach ($t in @($tempParts)) { if ($t -and (Test-Path -LiteralPath $t)) { Remove-Item -LiteralPath $t -Force -ErrorAction SilentlyContinue } }
+        Remove-ZsOwned @() $OutputDir $createdDir
+        throw
+    }
     finally {
         foreach ($a in $script:ZsOpened) { try { $a.Dispose() } catch { } }
         $script:ZsOpened.Clear()
@@ -723,40 +1264,53 @@ function Invoke-ZipSplit {
 
     # Rename and label every part (_zipsplitter_part.json).
     $results = New-Object System.Collections.Generic.List[object]
-    for ($k = 0; $k -lt $tempParts.Count; $k++) {
-        $dest = Join-Path $OutputDir $finalNames[$k]
-        if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Force }
-        Move-Item -LiteralPath $tempParts[$k] -Destination $dest
-        $stub = ConvertTo-ZsJsonObject @('format', 'zipsplitter-part', 'version', 1, 'setId', $setId, 'part', ($k + 1), 'partCount', $tempParts.Count, 'originalName', $srcInfo.Name, 'tool', $script:ZsToolName)
-        $size = Add-ZsZipEntryText $dest $script:ZsStubName $stub
-        if ($size -gt $LimitBytes) { throw ('Internal error: ' + $finalNames[$k] + ' exceeded the limit after adding the part label.') }
-        $results.Add((New-Object PSObject -Property @{ Path = $dest; Size = $size }))
-    }
-
-    if ($splitFiles.Count -gt 0) {
-        $all = New-Object System.Text.StringBuilder
-        [void]$all.AppendLine('Some files were too large for a single ' + [Math]::Round($LimitBytes / 1MB, 2) + ' MB zip and were cut into pieces.')
-        [void]$all.AppendLine('AgentParcel ("Rebuild from parts") joins them automatically. To do it by hand:')
-        [void]$all.AppendLine('')
-        foreach ($info in $splitFiles) { [void]$all.AppendLine((Get-ZsRejoinText $info)); [void]$all.AppendLine('----------------------------------------') }
-        [System.IO.File]::WriteAllText((Join-Path $OutputDir 'REJOIN_INSTRUCTIONS.txt'), $all.ToString())
-    }
-
+    $owned = New-Object System.Collections.Generic.List[string]
     $apps = $null
-    if ($IncludeApps) {
-        Report-ZsProgress 'Adding AgentParcel-apps.zip...'
-        try { $apps = Write-ZsAppsBundle $OutputDir $LimitBytes }
-        catch { $apps = New-Object PSObject -Property @{ Path = $null; Size = 0; Note = ('Apps bundle could not be created: ' + $_.Exception.Message) } }
+    try {
+        for ($k = 0; $k -lt $tempParts.Count; $k++) {
+            $dest = Join-Path $OutputDir $finalNames[$k]
+            if (Test-Path -LiteralPath $dest) { throw ('The output folder already contains ' + $finalNames[$k]) }
+            Move-Item -LiteralPath $tempParts[$k] -Destination $dest
+            $owned.Add($dest)
+            $stub = ConvertTo-ZsJsonObject @('format', 'zipsplitter-part', 'version', 1, 'setId', $setId, 'part', ($k + 1), 'partCount', $tempParts.Count, 'originalName', $srcInfo.Name, 'tool', $script:ZsToolName)
+            $size = Add-ZsZipEntryText $dest $script:ZsStubName $stub
+            if ($size -gt $LimitBytes) { throw ('Internal error: ' + $finalNames[$k] + ' exceeded the limit after adding the part label.') }
+            $results.Add((New-Object PSObject -Property @{ Path = $dest; Size = $size }))
+        }
+
+        if ($splitFiles.Count -gt 0) {
+            $all = New-Object System.Text.StringBuilder
+            [void]$all.AppendLine('Some files were too large for a single ' + [Math]::Round($LimitBytes / 1MB, 2) + ' MB zip and were cut into pieces.')
+            [void]$all.AppendLine('AgentParcel ("Rebuild from parts") joins them automatically. To do it by hand:')
+            [void]$all.AppendLine('')
+            foreach ($info in $splitFiles) { [void]$all.AppendLine((Get-ZsRejoinText $info)); [void]$all.AppendLine('----------------------------------------') }
+            $notePath = Join-Path $OutputDir 'REJOIN_INSTRUCTIONS.txt'
+            [System.IO.File]::WriteAllText($notePath, $all.ToString())
+            $owned.Add($notePath)
+        }
+
+        if ($IncludeApps) {
+            Report-ZsProgress 'Adding AgentParcel-apps.zip...'
+            try { $apps = Write-ZsAppsBundle $OutputDir $LimitBytes }
+            catch { $apps = New-Object PSObject -Property @{ Path = $null; Size = 0; Note = ('Apps bundle could not be created: ' + $_.Exception.Message) } }
+            if ($apps -and $apps.Path) { $owned.Add([string]$apps.Path) }
+        }
+        foreach ($k in @(Write-ZsZipKit $OutputDir $srcInfo.Name $results $LimitBytes $setId)) { $owned.Add($k) }
+    } catch {
+        foreach ($t in @($tempParts)) { if ($t -and (Test-Path -LiteralPath $t)) { Remove-Item -LiteralPath $t -Force -ErrorAction SilentlyContinue } }
+        Remove-ZsOwned $owned $OutputDir $createdDir
+        throw
     }
 
     $script:ZsDoneWork = $script:ZsTotalWork
     Report-ZsProgress 'Done.'
-    return (New-Object PSObject -Property @{ OutputDir = $OutputDir; Parts = $results; SplitFiles = $splitFiles; LimitBytes = $LimitBytes; UnpackedZips = $script:ZsUnpacked.ToArray(); UnpackFailed = $script:ZsUnpackFailed.ToArray(); SetId = $setId; Apps = $apps })
+    return (New-Object PSObject -Property @{ OutputDir = $OutputDir; Parts = $results; SplitFiles = $splitFiles; LimitBytes = $LimitBytes; UnpackedZips = $script:ZsUnpacked.ToArray(); UnpackFailed = $script:ZsUnpackFailed.ToArray(); SetId = $setId; Apps = $apps; Mode = 'zip' })
 }
 
 function Format-ZsSummary($Result) {
     $sb = New-Object System.Text.StringBuilder
-    [void]$sb.AppendLine('Created ' + $Result.Parts.Count + ' zip part(s) in:')
+    if ($Result.Mode -eq 'bytes') { [void]$sb.AppendLine('Created ' + $Result.Parts.Count + ' byte part(s) in:') }
+    else { [void]$sb.AppendLine('Created ' + $Result.Parts.Count + ' zip part(s) in:') }
     [void]$sb.AppendLine('  ' + $Result.OutputDir)
     foreach ($p in $Result.Parts) {
         [void]$sb.AppendLine(('  {0}  {1:N2} MB' -f [System.IO.Path]::GetFileName($p.Path), ($p.Size / 1MB)))
@@ -776,6 +1330,12 @@ function Format-ZsSummary($Result) {
         [void]$sb.AppendLine('NOTE: ' + $Result.SplitFiles.Count + ' file(s) were too big for one part and were cut into pieces (.001, .002, ...):')
         foreach ($s in $Result.SplitFiles) { [void]$sb.AppendLine('  ' + $s.Name + '  (' + $s.Pieces.Count + ' pieces)') }
         [void]$sb.AppendLine('"Rebuild from parts" joins them automatically (or see REJOIN_INSTRUCTIONS.txt).')
+    }
+    $how = Join-Path $Result.OutputDir 'HOW-TO-REBUILD.txt'
+    if (Test-Path -LiteralPath $how) {
+        [void]$sb.AppendLine('')
+        [void]$sb.AppendLine('HOW-TO-REBUILD.txt and rebuild.py are in that folder.')
+        if ($Result.Mode -eq 'bytes') { [void]$sb.AppendLine('The parts are raw pieces of the original file.') }
     }
     if ($Result.Apps) {
         [void]$sb.AppendLine('')
@@ -831,6 +1391,9 @@ function Find-ZsPartSet([string[]]$InputPaths) {
 
 function Test-ZsLooksLikeParts([string[]]$InputPaths) {
     # Used by the GUI / launcher to decide between Split and Rebuild for dropped items.
+    foreach ($p in @($InputPaths)) {
+        if (Find-ZsByteManifest @($p)) { return $true }
+    }
     $InputPaths = @($InputPaths | Where-Object { -not (Test-ZsIsAppsBundleName ([System.IO.Path]::GetFileName($_))) })
     $zipCount = 0
     foreach ($p in $InputPaths) {
@@ -1109,10 +1672,12 @@ function Invoke-ZipJoin {
 
 function Format-ZsJoinSummary($Result) {
     $sb = New-Object System.Text.StringBuilder
-    [void]$sb.AppendLine('Rebuilt zip:')
+    if ($Result.Mode -eq 'bytes') { [void]$sb.AppendLine('Rebuilt file:') } else { [void]$sb.AppendLine('Rebuilt zip:') }
     [void]$sb.AppendLine('  ' + $Result.OutputPath + ('  ({0:N2} MB)' -f ($Result.Size / 1MB)))
     [void]$sb.AppendLine('From ' + $Result.PartCount + ' part(s), ' + $Result.Entries + ' entries.')
-    if ($Result.Mode -eq 'manifest') {
+    if ($Result.Mode -eq 'bytes') {
+        [void]$sb.AppendLine('SHA-256 of the rebuilt file matches the manifest.')
+    } elseif ($Result.Mode -eq 'manifest') {
         [void]$sb.AppendLine('All ' + $Result.Verified + ' files verified (size + SHA-256 match the original).')
         if ($Result.InnerZips -gt 0) { [void]$sb.AppendLine('Re-created ' + $Result.InnerZips + ' inner zip(s).') }
     } elseif ($Result.Joined -gt 0) {
@@ -1131,19 +1696,37 @@ if ($env:AGENTPARCEL_LIBRARY -eq '1') { return }   # dot-source for testing with
 
 $cliProgress = { param($pct, $msg) Write-Progress -Activity 'AgentParcel' -Status $msg -PercentComplete $pct }
 
+if ($Verify -and $Verify.Count -gt 0) {
+    $inputs = @($Verify)
+    if ($Path) { $inputs += $Path }
+    $script:ZsCancel = $false
+    $report = Invoke-ZsVerify -InputPaths $inputs -OnProgress $cliProgress
+    Write-Progress -Activity 'AgentParcel' -Completed
+    Write-Host $report.Message
+    if (-not $report.Ok) { exit 1 }
+    return
+}
+
 if ($Join -and $Join.Count -gt 0) {
     $inputs = @($Join)
     if ($Path) { $inputs += $Path }
-    $r = Invoke-ZipJoin -InputPaths $inputs -OutputDir $OutputDir -OnProgress $cliProgress
+    $script:ZsCancel = $false
+    $r = Invoke-Rebuild -InputPaths $inputs -OutputDir $OutputDir -OnProgress $cliProgress
     Write-Progress -Activity 'AgentParcel' -Completed
     Write-Host (Format-ZsJoinSummary $r)
     return
 }
 
 if ($NoGui) {
-    if (-not $Path -or $Path.Count -eq 0) { throw 'Give the path of a .zip file.' }
+    if (-not $Path -or $Path.Count -eq 0) { throw 'Give the path of a file to split.' }
+    $script:ZsCancel = $false
     foreach ($p in $Path) {
-        $r = Invoke-ZipSplit -SourcePath $p -OutputDir $OutputDir -LimitBytes $limitBytes -UnpackInner (-not $NoUnpackInner) -IncludeApps (-not $NoIncludeApps) -OnProgress $cliProgress
+        $raw = [bool]$SplitBytes -or ([System.IO.Path]::GetExtension($p).ToLowerInvariant() -ne '.zip')
+        if ($raw) {
+            $r = Invoke-ByteSplit -SourcePath $p -OutputDir $OutputDir -LimitBytes $limitBytes -IncludeApps (-not $NoIncludeApps) -OnProgress $cliProgress
+        } else {
+            $r = Invoke-ZipSplit -SourcePath $p -OutputDir $OutputDir -LimitBytes $limitBytes -UnpackInner (-not $NoUnpackInner) -IncludeApps (-not $NoIncludeApps) -OnProgress $cliProgress
+        }
         Write-Progress -Activity 'AgentParcel' -Completed
         Write-Host (Format-ZsSummary $r)
     }
@@ -1272,7 +1855,7 @@ $main.Controls.Add($tabs, 0, $tabRow)
 # ---------------- Split tab ----------------
 $ts = New-ZsTable 2 $true
 $r = Add-ZsRow $ts $null
-$dropSplit = New-ZsDropLabel 'Drag a .zip file here to split it (or click Browse...)' 64
+$dropSplit = New-ZsDropLabel 'Drag a file here to split it (any type), or click Browse...' 64
 $ts.Controls.Add($dropSplit, 0, $r); $ts.SetColumnSpan($dropSplit, 2)
 $r = Add-ZsRow $ts $null
 $pathBox = New-ZsTextBox
@@ -1299,6 +1882,11 @@ $appsBox.Text = 'Include AgentParcel apps (Windows, Mac, Linux) so the recipient
 $appsBox.AutoSize = $true; $appsBox.Checked = (-not $NoIncludeApps); $appsBox.Margin = New-Object System.Windows.Forms.Padding((px 3))
 $ts.Controls.Add($appsBox, 0, $r); $ts.SetColumnSpan($appsBox, 2)
 $r = Add-ZsRow $ts $null
+$rawBox = New-Object System.Windows.Forms.CheckBox
+$rawBox.Text = 'Byte-split this file (exact bytes, any file type)'
+$rawBox.AutoSize = $true; $rawBox.Checked = $false; $rawBox.Margin = New-Object System.Windows.Forms.Padding((px 3))
+$ts.Controls.Add($rawBox, 0, $r); $ts.SetColumnSpan($rawBox, 2)
+$r = Add-ZsRow $ts $null
 $splitBtn = New-ZsButton 'Split' 110
 $splitBtn.Font = New-Object System.Drawing.Font($uiFont, [System.Drawing.FontStyle]::Bold)
 $ts.Controls.Add($splitBtn, 1, $r)
@@ -1307,7 +1895,7 @@ $tabSplit.Controls.Add($ts)
 # ---------------- Rebuild tab ----------------
 $tj = New-ZsTable 2 $true
 $r = Add-ZsRow $tj $null
-$dropJoin = New-ZsDropLabel 'Drag the part zips, their folder, or any one part here (the other parts are found automatically)' 52
+$dropJoin = New-ZsDropLabel 'Drag the parts, their folder, or any one part here (the other parts are found automatically)' 64
 $tj.Controls.Add($dropJoin, 0, $r); $tj.SetColumnSpan($dropJoin, 2)
 $r = Add-ZsRow $tj $null
 $partsList = New-Object System.Windows.Forms.ListBox
@@ -1335,9 +1923,14 @@ $saveRow.Controls.Add($outLabel, 0, 0); $saveRow.Controls.Add($outBox, 1, 0)
 $outBrowse = New-ZsButton 'Browse...' 110
 $tj.Controls.Add($saveRow, 0, $r); $tj.Controls.Add($outBrowse, 1, $r)
 $r = Add-ZsRow $tj $null
+$joinBtns = New-Object System.Windows.Forms.FlowLayoutPanel
+$joinBtns.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
+$joinBtns.AutoSize = $true; $joinBtns.WrapContents = $false; $joinBtns.Margin = New-Object System.Windows.Forms.Padding(0)
+$verifyBtn = New-ZsButton 'Verify' 110
 $joinBtn = New-ZsButton 'Rebuild' 110
 $joinBtn.Font = New-Object System.Drawing.Font($uiFont, [System.Drawing.FontStyle]::Bold)
-$tj.Controls.Add($joinBtn, 1, $r)
+$joinBtns.Controls.Add($verifyBtn); $joinBtns.Controls.Add($joinBtn)
+$tj.Controls.Add($joinBtns, 1, $r)
 $tabJoin.Controls.Add($tj)
 
 # ---------------- bottom: progress, status, log ----------------
@@ -1353,9 +1946,16 @@ $statusLine.AutoSize = $false; $statusLine.AutoEllipsis = $true
 $statusLine.Anchor = [System.Windows.Forms.AnchorStyles]'Left,Right'
 $statusLine.Height = $uiFont.Height + (px 4)
 $statusLine.Margin = New-Object System.Windows.Forms.Padding((px 3))
+$actionBtns = New-Object System.Windows.Forms.FlowLayoutPanel
+$actionBtns.FlowDirection = [System.Windows.Forms.FlowDirection]::LeftToRight
+$actionBtns.AutoSize = $true; $actionBtns.WrapContents = $false; $actionBtns.Margin = New-Object System.Windows.Forms.Padding(0)
+$actionBtns.Anchor = [System.Windows.Forms.AnchorStyles]::Right
 $openBtn = New-ZsButton 'Open folder' 110
 $openBtn.Enabled = $false
-$statusRow.Controls.Add($statusLine, 0, 0); $statusRow.Controls.Add($openBtn, 1, 0)
+$stopBtn = New-ZsButton 'Stop' 110
+$stopBtn.Enabled = $false
+$actionBtns.Controls.Add($openBtn); $actionBtns.Controls.Add($stopBtn)
+$statusRow.Controls.Add($statusLine, 0, 0); $statusRow.Controls.Add($actionBtns, 1, 0)
 $main.Controls.Add($statusRow, 0, 2)
 $log = New-Object System.Windows.Forms.TextBox
 $log.Multiline = $true; $log.ReadOnly = $true; $log.ScrollBars = 'Vertical'; $log.WordWrap = $true
@@ -1394,28 +1994,42 @@ $guiProgress = {
 
 function Set-ZsBusy([bool]$On) {
     $script:busy = $On
-    foreach ($c in @($splitBtn, $browse, $limitBox, $unpackBox, $appsBox, $joinBtn, $addParts, $addFolder, $clearParts, $outBox, $outBrowse)) { $c.Enabled = -not $On }
+    foreach ($c in @($splitBtn, $browse, $limitBox, $unpackBox, $appsBox, $rawBox, $joinBtn, $verifyBtn, $addParts, $addFolder, $clearParts, $outBox, $outBrowse)) { $c.Enabled = -not $On }
+    $stopBtn.Enabled = $On
     if ($On) { $openBtn.Enabled = $false }
+}
+
+function Show-ZsCancelledOrError([string]$Title, $ErrorRecord) {
+    if ($ErrorRecord.Exception.Message -eq 'Cancelled') {
+        $statusLine.Text = 'Cancelled'
+        Show-ZsLog 'Cancelled'
+        return
+    }
+    $statusLine.Text = 'Failed.'
+    $log.AppendText("`r`nERROR: " + $ErrorRecord.Exception.Message + "`r`n")
+    [void][System.Windows.Forms.MessageBox]::Show($Title + "`r`n" + $ErrorRecord.Exception.Message, 'AgentParcel', 'OK', 'Error')
 }
 
 function Show-ZsLog([string]$Text) { $log.Text = $Text.Replace("`r`n", "`n").Replace("`n", "`r`n") }
 
 function Start-Split {
     $p = $pathBox.Text.Trim().Trim('"')
-    if (-not $p) { [void][System.Windows.Forms.MessageBox]::Show('Choose a .zip file first.', 'AgentParcel'); return }
+    if (-not $p) { [void][System.Windows.Forms.MessageBox]::Show('Choose a file first.', 'AgentParcel'); return }
     if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { [void][System.Windows.Forms.MessageBox]::Show('File not found:' + "`r`n" + $p, 'AgentParcel'); return }
-    if ([System.IO.Path]::GetExtension($p).ToLowerInvariant() -ne '.zip') { [void][System.Windows.Forms.MessageBox]::Show('That is not a .zip file.', 'AgentParcel'); return }
     $lim = [long][Math]::Floor([double]$limitBox.Value * 1024 * 1024)
     $len = (Get-Item -LiteralPath $p).Length
+    $raw = [bool]$rawBox.Checked -or ([System.IO.Path]::GetExtension($p).ToLowerInvariant() -ne '.zip')
     if ($len -le $lim) {
-        $ans = [System.Windows.Forms.MessageBox]::Show(('This zip is already {0:N2} MB, which is under the limit. Split it anyway?' -f ($len / 1MB)), 'AgentParcel', 'YesNo')
+        $ans = [System.Windows.Forms.MessageBox]::Show(('This file is already {0:N2} MB, which is under the limit. Split it anyway?' -f ($len / 1MB)), 'AgentParcel', 'YesNo')
         if ($ans -ne 'Yes') { return }
     }
+    $script:ZsCancel = $false
     Set-ZsBusy $true
-    Show-ZsLog ('Splitting ' + $p)
+    Show-ZsLog ($(if ($raw) { 'Byte-splitting ' } else { 'Splitting ' }) + $p)
     $bar.Value = 0
     try {
-        $r = Invoke-ZipSplit -SourcePath $p -LimitBytes $lim -UnpackInner ([bool]$unpackBox.Checked) -IncludeApps ([bool]$appsBox.Checked) -OnProgress $guiProgress
+        if ($raw) { $r = Invoke-ByteSplit -SourcePath $p -LimitBytes $lim -IncludeApps ([bool]$appsBox.Checked) -OnProgress $guiProgress }
+        else { $r = Invoke-ZipSplit -SourcePath $p -LimitBytes $lim -UnpackInner ([bool]$unpackBox.Checked) -IncludeApps ([bool]$appsBox.Checked) -OnProgress $guiProgress }
         $script:lastOut = $r.OutputDir
         Show-ZsLog (Format-ZsSummary $r)
         $bar.Value = 100
@@ -1423,16 +2037,20 @@ function Start-Split {
         else { $statusLine.Text = 'Done - ' + $r.Parts.Count + ' part(s) created.' }
         $openBtn.Enabled = $true
     }
-    catch {
-        $statusLine.Text = 'Failed.'
-        $log.AppendText("`r`nERROR: " + $_.Exception.Message + "`r`n")
-        [void][System.Windows.Forms.MessageBox]::Show('Split failed:' + "`r`n" + $_.Exception.Message, 'AgentParcel', 'OK', 'Error')
-    }
+    catch { Show-ZsCancelledOrError 'Split failed:' $_ }
     finally { Set-ZsBusy $false }
 }
 
 function Add-ZsPartsToList([string[]]$Items) {
-    try { $found = Find-ZsPartSet $Items } catch { [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'AgentParcel'); return }
+    $manifest = Find-ZsByteManifest $Items
+    if ($manifest) {
+        $dir = [System.IO.Path]::GetDirectoryName($manifest)
+        if (-not $partsList.Items.Contains($dir)) { [void]$partsList.Items.Add($dir) }
+    }
+    try { $found = Find-ZsPartSet $Items } catch {
+        if (-not $manifest) { [void][System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'AgentParcel') }
+        return
+    }
     foreach ($f in $found) {
         if (Test-ZsIsAppsBundleName ([System.IO.Path]::GetFileName($f))) { continue }
         if (-not $partsList.Items.Contains($f)) { [void]$partsList.Items.Add($f) }
@@ -1443,22 +2061,41 @@ function Start-Join {
     if ($partsList.Items.Count -eq 0) { [void][System.Windows.Forms.MessageBox]::Show('Add the part zips first (one part is enough).', 'AgentParcel'); return }
     $inputs = @(); foreach ($i in $partsList.Items) { $inputs += [string]$i }
     $od = $outBox.Text.Trim().Trim('"')
+    $script:ZsCancel = $false
     Set-ZsBusy $true
     Show-ZsLog ('Rebuilding from ' + $partsList.Items.Count + ' part(s)...')
     $bar.Value = 0
     try {
-        $r = Invoke-ZipJoin -InputPaths $inputs -OutputDir $od -OnProgress $guiProgress
+        $r = Invoke-Rebuild -InputPaths $inputs -OutputDir $od -OnProgress $guiProgress
         $script:lastOut = [System.IO.Path]::GetDirectoryName($r.OutputPath)
         Show-ZsLog (Format-ZsJoinSummary $r)
         $bar.Value = 100
         $statusLine.Text = 'Done - rebuilt ' + [System.IO.Path]::GetFileName($r.OutputPath)
         $openBtn.Enabled = $true
     }
-    catch {
-        $statusLine.Text = 'Failed.'
-        $log.AppendText("`r`nERROR: " + $_.Exception.Message + "`r`n")
-        [void][System.Windows.Forms.MessageBox]::Show('Rebuild failed:' + "`r`n" + $_.Exception.Message, 'AgentParcel', 'OK', 'Error')
+    catch { Show-ZsCancelledOrError 'Rebuild failed:' $_ }
+    finally { Set-ZsBusy $false }
+}
+
+function Start-Verify {
+    if ($partsList.Items.Count -eq 0) { [void][System.Windows.Forms.MessageBox]::Show('Add the parts or their folder first.', 'AgentParcel'); return }
+    $inputs = @(); foreach ($i in $partsList.Items) { $inputs += [string]$i }
+    $script:ZsCancel = $false
+    Set-ZsBusy $true
+    Show-ZsLog ('Verifying ' + $partsList.Items.Count + ' item(s)...')
+    $bar.Value = 0
+    try {
+        $report = Invoke-ZsVerify -InputPaths $inputs -OnProgress $guiProgress
+        Show-ZsLog $report.Message
+        $bar.Value = 100
+        if ($report.Ok) { $statusLine.Text = 'Verified - all parts match.' }
+        else { $statusLine.Text = 'Verify found missing or corrupt parts.' }
+        $first = [string]$partsList.Items[0]
+        if (Test-Path -LiteralPath $first -PathType Container) { $script:lastOut = $first }
+        else { $script:lastOut = [System.IO.Path]::GetDirectoryName($first) }
+        $openBtn.Enabled = $true
     }
+    catch { Show-ZsCancelledOrError 'Verify failed:' $_ }
     finally { Set-ZsBusy $false }
 }
 
@@ -1494,8 +2131,8 @@ foreach ($c in @($form, $main, $tabs, $tabSplit, $tabJoin, $ts, $tj, $dropSplit,
 
 $browse.Add_Click({
     $dlg = New-Object System.Windows.Forms.OpenFileDialog
-    $dlg.Filter = 'Zip files (*.zip)|*.zip|All files (*.*)|*.*'
-    $dlg.Title = 'Choose a zip to split'
+    $dlg.Filter = 'All files (*.*)|*.*|Zip files (*.zip)|*.zip'
+    $dlg.Title = 'Choose a file to split'
     if ($dlg.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) { $pathBox.Text = $dlg.FileName }
 })
 $splitBtn.Add_Click({ if (-not $script:busy) { Start-Split } })
@@ -1518,6 +2155,13 @@ $outBrowse.Add_Click({
     if ($dlg.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) { $outBox.Text = $dlg.SelectedPath }
 })
 $joinBtn.Add_Click({ if (-not $script:busy) { Start-Join } })
+$verifyBtn.Add_Click({ if (-not $script:busy) { Start-Verify } })
+$stopBtn.Add_Click({
+    if ($script:busy) {
+        $script:ZsCancel = $true
+        $statusLine.Text = 'Cancelling...'
+    }
+})
 $openBtn.Add_Click({ if ($script:lastOut) { Start-Process explorer.exe -ArgumentList ('"' + $script:lastOut + '"') } })
 $form.Add_FormClosing({ param($s, $e) if ($script:busy) { $e.Cancel = $true } })
 
@@ -1582,7 +2226,7 @@ if ($env:AGENTPARCEL_LAYOUT_TEST -eq '1') {
             }
         }
     }
-    $btns = @($browse, $splitBtn, $addParts, $addFolder, $clearParts, $outBrowse, $joinBtn, $openBtn) | ForEach-Object { '{0}={1}x{2}' -f $_.Text, $_.Width, $_.Height }
+    $btns = @($browse, $splitBtn, $addParts, $addFolder, $clearParts, $outBrowse, $verifyBtn, $joinBtn, $openBtn, $stopBtn) | ForEach-Object { '{0}={1}x{2}' -f $_.Text, $_.Width, $_.Height }
     Write-Output ('scale {0}: buttons {1}' -f $script:S, ($btns -join '; '))
     if ($form.Icon) {
         foreach ($isz in 16, 32, 48) {

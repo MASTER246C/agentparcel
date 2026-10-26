@@ -16,9 +16,14 @@ TOOLS
   inspect            read-only: sizes, entry count, estimated parts; for parts: set id, part n of N,
                      missing parts. Works on a .zip, a part, a folder or any file.
   split_zip          split a .zip into <name>_part01.zip, _part02.zip ... each <= max_mb.
+  split_any_file     byte-split ANY one file into raw numbered parts (exact original, SHA-256).
+                     The folder also gets HOW-TO-REBUILD.txt and rebuild.py (Python 3 stdlib only).
   split_files        zip files and/or folders (logs, videos, datasets, projects) and split in one step.
-  rebuild            rebuild the original from a folder / one part / a list of parts (SHA-256 verified;
-                     names any missing part). extract=true also unpacks it into a folder.
+  verify             read-only: every part present, each checksum matches the manifest. Names the
+                     missing parts and the corrupt parts. Writes nothing.
+  rebuild            rebuild a zip part set OR a byte-split set from a folder / one part / a list
+                     (SHA-256 verified; names any missing or corrupt part). extract=true unpacks a
+                     rebuilt zip into a folder.
   make_apps_bundle   write AgentParcel-apps.zip (the apps for a human recipient).
   Sizes: max_mb is MiB (19.5 = 20,447,232 bytes). For an exact limit pass max_bytes
   (e.g. a "20 MB" upload limit that means 20,000,000 bytes -> max_bytes 20000000, or max_mb 19).

@@ -19,7 +19,8 @@ Tester: ________  Distro / desktop: ________  Python: ________  Date: ________
 - [ ] Optional: the `agentparcel.desktop` menu entry works after editing `Exec=`
 
 ## MCP
-- [ ] `python3 mcp/agentparcel_mcp.py --list-tools` lists 5 tools
+- [ ] `python3 mcp/agentparcel_mcp.py --list-tools` lists 7 tools (inspect, split_zip, split_any_file, split_files, verify, rebuild, make_apps_bundle)
+- [ ] `python3 agentparcel.py --split-bytes` on a non-zip, then `python3 rebuild.py` in the parts folder, restores the exact file. `--verify` names a missing part. Stop in the window reports Cancelled
 - [ ] `npx @modelcontextprotocol/inspector --cli python3 mcp/agentparcel_mcp.py --method tools/list` works (needs Node.js)
 - [ ] With a snippet from `mcp/README-mcp.txt` added to Claude Code, Cursor or Codex, a split and rebuild round trip works
 
