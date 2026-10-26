@@ -1,4 +1,4 @@
-> **⚠️ Known issue:** the Windows app in v3.4.0 and v3.5.0 fails when splitting zips ("Argument types do not match") and may wrongly report byte-split parts as corrupt on rebuild. A fix (v3.5.1) is in progress. Until then, Windows users should use [v3.3.1](https://github.com/MASTER246C/agentparcel/releases/tag/v3.3.1) for zip splitting.
+> ⚠️ Known issue: the Windows app in v3.4.0 and v3.5.0 fails when splitting zips ("Argument types do not match") and may wrongly report byte-split parts as corrupt on rebuild. A fix (v3.5.1) is in progress. Until then, Windows users should use v3.3.1 (https://github.com/MASTER246C/agentparcel/releases/tag/v3.3.1) for zip splitting.
 
 <p align="center">
   <picture>
