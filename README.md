@@ -1,4 +1,4 @@
-> Fixed in v3.5.1: the Windows app in v3.4.0 and v3.5.0 fails when splitting zips ("Argument types do not match") and may wrongly report byte-split parts as corrupt on rebuild. Use v3.5.1 (https://github.com/MASTER246C/agentparcel/releases/tag/v3.5.1).
+> Windows users on 3.4.0 or 3.5.0 should update to [3.5.1](https://github.com/MASTER246C/agentparcel/releases/tag/v3.5.1), which fixes the "Argument types do not match" split error and the false "corrupt part" rebuild results, confirmed working on Windows.
 
 <p align="center">
   <picture>

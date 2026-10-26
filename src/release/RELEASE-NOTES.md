@@ -6,7 +6,7 @@ AgentParcel is an independent project. It is not affiliated with, endorsed by, o
 
 | Package | Platform | Status |
 |---|---|---|
-| `AgentParcel-@@ZS_VERSION@@-windows.zip` | Windows 10/11 (PowerShell 5.1, included in Windows) | Zip split (unpack and include-apps both on) and byte verify/rebuild were run with PowerShell 7.6, which throws the same "Argument types do not match" error as Windows PowerShell 5.1. The WinForms window was not opened on Windows |
+| `AgentParcel-@@ZS_VERSION@@-windows.zip` | Windows 10/11 (PowerShell 5.1, included in Windows) | Split and rebuild confirmed working on Windows, from the portable zip and the installer |
 | `AgentParcel-@@ZS_VERSION@@-linux.zip` | Linux with Python 3.9+ (Tk optional) | unit tests for the 3.5.1 PowerShell fixes, presets, regenerate, zlib, AES-GCM, rebuild.py, and cross-checks between PowerShell and Python |
 | `AgentParcel-@@ZS_VERSION@@-macos.zip` | macOS 11+ with Python 3.9+ | **community-tested/beta** (same Python program as Linux). Mac users: if you hit an issue or can help test, reach out via chriskalkowski.com. |
 
