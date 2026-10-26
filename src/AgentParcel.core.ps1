@@ -231,6 +231,22 @@ function Get-ZsProp($Obj, [string]$Name) {
     return $null
 }
 
+function Get-ZsItems($Obj, [string]$Name) {
+    # Get-ZsProp already returns one value (the comma stops an array from unrolling).
+    # Wrapping that call in @() nests the JSON array, so a good part set looks corrupt.
+    $value = Get-ZsProp $Obj $Name
+    if ($null -eq $value) { $value = @() }
+    elseif ($value -isnot [System.Array]) { $value = @($value) }
+    return ,$value
+}
+
+function Format-ZsLogError([string]$Message) {
+    # A WinForms text box only breaks lines on CRLF. A thrown message uses LF, so the
+    # log would show every corrupt part on one line.
+    if ($null -eq $Message) { return '' }
+    return (($Message -replace "`r`n", "`n" -replace "`r", "`n") -replace "`n", "`r`n")
+}
+
 function Read-ZsJsonEntry($Entry) {
     $s = $Entry.Open()
     $r = New-Object System.IO.StreamReader($s, [System.Text.Encoding]::UTF8)
@@ -486,7 +502,7 @@ function Expand-ZsInnerZip($Entry, [string]$Name, $SiblingNames, $Items, [long]$
     $inner = $null
     $adjust = 0.0
     $zipSha = ''
-    $sub = New-Object System.Collections.Generic.List[object]
+    $sub = [System.Collections.Generic.List[object]]::new()
     $saveE = $script:ZsMEntries.Count
     $saveA = $script:ZsMArchives.Count
     $script:ZsArchiveCounter++
@@ -641,7 +657,9 @@ function Write-ZsKitFiles([string]$Directory, [string]$Mode, [string]$Original, 
 function Write-ZsZipKit([string]$OutDir, [string]$Original, $Results, [long]$LimitBytes, [string]$SetId) {
     $parts = New-Object System.Collections.Generic.List[string]
     $i = 0
-    foreach ($p in @($Results)) {
+    # Do not wrap $Results in @(). New-Object List[object] is PSObject-wrapped, and @()
+    # then throws "Argument types do not match" on Windows PowerShell 5.1 and PowerShell 7.
+    foreach ($p in $Results) {
         $i++
         Report-ZsProgress ('Checksum part ' + $i)
         $name = [System.IO.Path]::GetFileName([string]$p.Path)
@@ -747,7 +765,7 @@ function Invoke-ByteSplit {
     $script:ZsTotalWork = [Math]::Max(1.0, [double]$size)
     $digits = [Math]::Max(2, ([string]$partCount).Length)
     $owned = New-Object System.Collections.Generic.List[string]
-    $results = New-Object System.Collections.Generic.List[object]
+    $results = [System.Collections.Generic.List[object]]::new()
     $src = $null
     try {
         $src = [System.IO.File]::OpenRead($SourcePath)
@@ -822,18 +840,18 @@ function Invoke-ByteSplit {
 function Invoke-ZsVerifyBytes([string]$ManifestPath) {
     $folder = [System.IO.Path]::GetDirectoryName($ManifestPath)
     $manifest = ConvertFrom-ZsJson ([System.IO.File]::ReadAllText($ManifestPath))
-    $parts = @(Get-ZsProp $manifest 'parts')
+    $parts = Get-ZsItems $manifest 'parts'
     $partCount = [int](Get-ZsProp $manifest 'partCount')
-    if ($partCount -lt 1) { $partCount = @($parts).Count }
+    if ($partCount -lt 1) { $partCount = $parts.Count }
     $original = [string](Get-ZsProp $manifest 'originalName')
     $script:ZsTotalWork = [Math]::Max(1.0, [double](Get-ZsProp $manifest 'originalSize'))
     $script:ZsDoneWork = 0.0
     $missing = New-Object System.Collections.Generic.List[int]
     $missingNames = New-Object System.Collections.Generic.List[string]
-    $corrupt = New-Object System.Collections.Generic.List[object]
+    $corrupt = [System.Collections.Generic.List[object]]::new()
     $present = New-Object System.Collections.Generic.List[int]
     $byNum = @{}
-    foreach ($part in @($parts)) {
+    foreach ($part in $parts) {
         if ($null -eq $part) { continue }
         $byNum[[int](Get-ZsProp $part 'part')] = $part
     }
@@ -945,10 +963,10 @@ function Invoke-ZsRegeneratePlain {
 function Invoke-ZsVerifyZip([string[]]$InputPaths) {
     $files = @(Find-ZsPartSet $InputPaths)
     if ($files.Count -eq 0) { throw 'No parts found.' }
-    $opened = New-Object System.Collections.Generic.List[object]
+    $opened = [System.Collections.Generic.List[object]]::new()
     try {
-        $parts = New-Object System.Collections.Generic.List[object]
-        $unreadable = New-Object System.Collections.Generic.List[object]
+        $parts = [System.Collections.Generic.List[object]]::new()
+        $unreadable = [System.Collections.Generic.List[object]]::new()
         foreach ($path in $files) {
             Report-ZsProgress ('Opening ' + [System.IO.Path]::GetFileName($path))
             $zf = $null
@@ -1005,7 +1023,7 @@ function Invoke-ZsVerifyZip([string[]]$InputPaths) {
             $entry = $use[$number].Zip.GetEntry($script:ZsManifestName)
             if ($entry) { $manifest = Read-ZsJsonEntry $entry; break }
         }
-        $corrupt = New-Object System.Collections.Generic.List[object]
+        $corrupt = [System.Collections.Generic.List[object]]::new()
         foreach ($item in $unreadable) { $corrupt.Add($item) }
         if (-not $manifest) {
             $corrupt.Add((New-Object PSObject -Property @{ Part = $null; Name = $script:ZsManifestName; Reason = 'manifest was not found in any present part' }))
@@ -1017,7 +1035,7 @@ function Invoke-ZsVerifyZip([string[]]$InputPaths) {
                     if (-not $index.ContainsKey($zi.FullName)) { $index[$zi.FullName] = $zi; $partOf[$zi.FullName] = $number }
                 }
             }
-            $entries = @(Get-ZsProp $manifest 'entries')
+            $entries = Get-ZsItems $manifest 'entries'
             foreach ($rec in $entries) {
                 if ([string](Get-ZsProp $rec 'type') -ne 'file') { continue }
                 $stored = [string](Get-ZsProp $rec 'stored')
@@ -1063,7 +1081,7 @@ function Invoke-ZsVerifyZip([string[]]$InputPaths) {
         $side = Join-Path ([System.IO.Path]::GetDirectoryName($parts[0].Path)) $script:ZsZipsetManifest
         if (Test-Path -LiteralPath $side -PathType Leaf) {
             $sideObj = ConvertFrom-ZsJson ([System.IO.File]::ReadAllText($side))
-            foreach ($rec in @(Get-ZsProp $sideObj 'parts')) {
+            foreach ($rec in (Get-ZsItems $sideObj 'parts')) {
                 $name = [string](Get-ZsProp $rec 'name')
                 Report-ZsProgress ('Checksum ' + $name)
                 $path = Join-Path ([System.IO.Path]::GetDirectoryName($parts[0].Path)) $name
@@ -1115,7 +1133,7 @@ function Invoke-ByteRebuild {
     try {
         $out = [System.IO.File]::Open($tmp, [System.IO.FileMode]::CreateNew)
         try {
-            foreach ($part in @(Get-ZsProp $manifest 'parts')) {
+            foreach ($part in (Get-ZsItems $manifest 'parts')) {
                 Report-ZsProgress ('Rebuilding part ' + (Get-ZsProp $part 'part'))
                 $path = Join-Path $folder ([string](Get-ZsProp $part 'name'))
                 $inp = [System.IO.File]::OpenRead($path)
@@ -1133,7 +1151,7 @@ function Invoke-ByteRebuild {
         throw
     }
     Report-ZsProgress 'Done.'
-    $count = @(@(Get-ZsProp $manifest 'parts')).Count
+    $count = (Get-ZsItems $manifest 'parts').Count
     return (New-Object PSObject -Property @{
         OutputPath = $dest; Mode = 'bytes'; PartCount = $count; Verified = 1; InnerZips = 0
         Entries = 1; Joined = 0; Warnings = @(); Size = (Get-Item -LiteralPath $dest).Length
@@ -1184,8 +1202,8 @@ function Invoke-ZipSplit {
 
     $setId = [guid]::NewGuid().ToString('N')
     $tempParts = New-Object System.Collections.Generic.List[string]
-    $splitFiles = New-Object System.Collections.Generic.List[object]
-    $script:ZsOpened = New-Object System.Collections.Generic.List[object]
+    $splitFiles = [System.Collections.Generic.List[object]]::new()
+    $script:ZsOpened = [System.Collections.Generic.List[object]]::new()
     $script:ZsUnpacked = New-Object System.Collections.Generic.List[string]
     $script:ZsUnpackFailed = New-Object System.Collections.Generic.List[string]
     $script:ZsMEntries = New-Object System.Collections.Generic.List[string]
@@ -1200,7 +1218,7 @@ function Invoke-ZipSplit {
         $script:ZsTotalWork = [Math]::Max(1.0, 2.0 * $total)
 
         # ---- Phase 1: measure + hash every entry (unpacking inner zips) ----
-        $items = New-Object System.Collections.Generic.List[object]
+        $items = [System.Collections.Generic.List[object]]::new()
         $script:ZsMArchives.Add((ConvertTo-ZsJsonObject @('id', 0, 'parent', -1, 'depth', 0, 'entry', '', 'folder', '')))
         Add-ZsArchiveItems $archive '' $items $budget $UnpackInner 0 0
 
@@ -1223,7 +1241,7 @@ function Invoke-ZipSplit {
         $mItem2 = New-Object PSObject -Property @{ Kind = 'blob'; Name = $script:ZsManifestName; Bytes = $mBytes; Cost = $mCost; Len = 0; IsManifest = $true; Entry = $null }
 
         # ---- Phase 2: write the parts (manifest goes first and last) ----
-        $pending = New-Object System.Collections.Generic.List[object]
+        $pending = [System.Collections.Generic.List[object]]::new()
         $pending.Add($mItem1)
         foreach ($it in $items) { $pending.Add($it) }
         $pending.Add($mItem2)
@@ -1266,7 +1284,7 @@ function Invoke-ZipSplit {
                         $isLast = $eof -and ($take -eq $filled)
                         $partNo++
                         $tmp = Join-Path $OutputDir ('~zs_part' + $partNo + '.tmp')
-                        $partItems = New-Object System.Collections.Generic.List[object]
+                        $partItems = [System.Collections.Generic.List[object]]::new()
                         $partItems.Add((New-Object PSObject -Property @{ Kind = 'bytes'; Name = $pieceName; Entry = $next.Entry; Buffer = $buf; Count = $take }))
                         $info.Pieces.Add($pieceName)
                         $info.PartIndexes.Add($partNo)
@@ -1295,7 +1313,7 @@ function Invoke-ZipSplit {
             }
 
             # ---- normal part: greedy fill ----
-            $partItems = New-Object System.Collections.Generic.List[object]
+            $partItems = [System.Collections.Generic.List[object]]::new()
             $used = [long]0
             $hasManifest = $false
             while ($pending.Count -gt 0 -and $pending[0].Kind -ne 'chunked') {
@@ -1361,7 +1379,7 @@ function Invoke-ZipSplit {
     }
 
     # Rename and label every part (_zipsplitter_part.json).
-    $results = New-Object System.Collections.Generic.List[object]
+    $results = [System.Collections.Generic.List[object]]::new()
     $owned = New-Object System.Collections.Generic.List[string]
     $apps = $null
     try {
@@ -1517,7 +1535,7 @@ function Find-ZsStoredEntry([string]$Stored) {
     foreach ($w in 3, 4, 5, 6) {
         $first = $Stored + '.' + ('1'.PadLeft($w, '0'))
         if ($idx.ContainsKey($first)) {
-            $list = New-Object System.Collections.Generic.List[object]
+            $list = [System.Collections.Generic.List[object]]::new()
             $k = 1
             while ($true) {
                 $nm = $Stored + '.' + ([string]$k).PadLeft($w, '0')
@@ -1605,12 +1623,12 @@ function Invoke-ZipJoin {
     if ($files.Count -eq 0) { throw 'No .zip parts found.' }
     Report-ZsProgress ('Checking ' + $files.Count + ' part(s)...')
 
-    $opened = New-Object System.Collections.Generic.List[object]
+    $opened = [System.Collections.Generic.List[object]]::new()
     $script:ZsTempDir = New-ZsTempDir
     $tmpOut = $null
     try {
         # ---- open parts, read labels ----
-        $parts = New-Object System.Collections.Generic.List[object]
+        $parts = [System.Collections.Generic.List[object]]::new()
         foreach ($f in $files) {
             try { $z = [System.IO.Compression.ZipFile]::OpenRead($f) }
             catch { throw ('Not a readable zip: ' + [System.IO.Path]::GetFileName($f) + ' (' + $_.Exception.Message + ')') }
@@ -1668,7 +1686,7 @@ function Invoke-ZipJoin {
             $total = 0.0
             foreach ($rec in @($manifest.entries)) {
                 $aid = [int]$rec.archive
-                if (-not $script:ZsJoinByArchive.ContainsKey($aid)) { $script:ZsJoinByArchive[$aid] = New-Object System.Collections.Generic.List[object] }
+                if (-not $script:ZsJoinByArchive.ContainsKey($aid)) { $script:ZsJoinByArchive[$aid] = [System.Collections.Generic.List[object]]::new() }
                 $script:ZsJoinByArchive[$aid].Add($rec)
                 if ($rec.type -eq 'file') { $d = 0; if ($depthOf.ContainsKey($aid)) { $d = $depthOf[$aid] }; $total += [double]$rec.size * (1 + $d) }
             }
@@ -2124,7 +2142,7 @@ function Show-ZsCancelledOrError([string]$Title, $ErrorRecord) {
         return
     }
     $statusLine.Text = 'Failed.'
-    $log.AppendText("`r`nERROR: " + $ErrorRecord.Exception.Message + "`r`n")
+    $log.AppendText("`r`nERROR: " + (Format-ZsLogError $ErrorRecord.Exception.Message) + "`r`n")
     [void][System.Windows.Forms.MessageBox]::Show($Title + "`r`n" + $ErrorRecord.Exception.Message, 'AgentParcel', 'OK', 'Error')
 }
 

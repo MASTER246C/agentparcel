@@ -6,14 +6,16 @@ AgentParcel is an independent project. It is not affiliated with, endorsed by, o
 
 | Package | Platform | Status |
 |---|---|---|
-| `AgentParcel-@@ZS_VERSION@@-windows.zip` | Windows 10/11 (PowerShell 5.1, included in Windows) | PowerShell source is in the package. The 3.5.0 PowerShell changes (size presets and Resend) were not executed on Windows in this build |
-| `AgentParcel-@@ZS_VERSION@@-linux.zip` | Linux with Python 3.9+ (Tk optional) | unit tests for presets, regenerate, zlib, AES-GCM, rebuild.py, and the wheel install; MCP tools checked |
+| `AgentParcel-@@ZS_VERSION@@-windows.zip` | Windows 10/11 (PowerShell 5.1, included in Windows) | Zip split (unpack and include-apps both on) and byte verify/rebuild were run with PowerShell 7.6, which throws the same "Argument types do not match" error as Windows PowerShell 5.1. The WinForms window was not opened on Windows |
+| `AgentParcel-@@ZS_VERSION@@-linux.zip` | Linux with Python 3.9+ (Tk optional) | unit tests for the 3.5.1 PowerShell fixes, presets, regenerate, zlib, AES-GCM, rebuild.py, and cross-checks between PowerShell and Python |
 | `AgentParcel-@@ZS_VERSION@@-macos.zip` | macOS 11+ with Python 3.9+ | **community-tested/beta** (same Python program as Linux). Mac users: if you hit an issue or can help test, reach out via chriskalkowski.com. |
 
 Check a download:  `sha256sum -c SHA256SUMS.txt` (Linux), `shasum -a 256 -c SHA256SUMS.txt` (macOS),
 `Get-FileHash .\AgentParcel-@@ZS_VERSION@@-windows.zip` (Windows PowerShell).
 
 ## What's new
+- **3.5.1: Windows zip split works again.** v3.4.0 and v3.5.0 failed with "Argument types do not match" and deleted the output. A `List[object]` must not be wrapped in `@()`.
+- **3.5.1: byte parts verify.** The manifest was already correct. Rebuild no longer calls every part corrupt, and the log puts each part on its own line.
 - **3.5.0: size presets.** Window menu and MCP `preset`: chatgpt-dot (19,000,000 bytes under 20 MB), chat-512 (500,000,000 under 512 MB), discord (24,000,000 under the free 25 MB cap; Nitro is higher), email (24,000,000 under a common 25 MB cap), github-release (1,900,000,000 under 2 GB), custom. Caps sit under the advertised limit. Limits can change.
 - **3.5.0: re-send missing parts.** MCP `regenerate_parts`, and Resend in the window, rewrite only the missing or corrupt parts from the original file. Rebuild names any parts that are still needed.
 - **3.5.0: optional zlib and AES-256-GCM.** Off by default. `rebuild.py` decompresses zlib parts with the standard library. Encrypted parts need AgentParcel plus `cryptography` (`pip install agentparcel[crypto]`). The password is not stored. `rebuild.py` will not decrypt and will not write a file.

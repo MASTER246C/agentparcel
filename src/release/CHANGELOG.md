@@ -8,6 +8,11 @@ AgentParcel is an independent project. It is not affiliated with, endorsed by, o
 
 Entries before 3.3.1 still use that working name for the files from our own development builds. The `_zipsplitter_*` marker files and the `ZIPSPLITTER_*` environment-variable fallbacks come from those builds, not from any other project named ZipSplitter. They remain only for backward compatibility.
 
+## 3.5.1 - 2026-10-26
+- **Windows zip split.** Splitting a zip failed with "Argument types do not match" and the output folder was removed, so it looked like no parts were written. The finished part list was passed through `@()`. Windows PowerShell 5.1 and PowerShell 7 throw that error for a `List[object]` made with `New-Object`. Unpack-inner and include-apps both stay on in the fix. 3.3.1 was not affected.
+- **Byte-part checksums.** Verify and rebuild reported every byte part corrupt right after a split. The manifest hashes were correct. The reader wrapped the parts array, so it never saw each part's size or SHA-256. PowerShell and Python accept each other's plain byte sets, and `rebuild.py` rebuilds a set written by PowerShell.
+- **Error log.** Each missing or corrupt part is on its own line in the Windows log.
+
 ## 3.5.0 - 2026-10-26
 - **Size presets.** The window has a size-preset menu, and the MCP split tools take `preset`: `chatgpt-dot` (19,000,000 bytes, under a 20,000,000 byte ChatGPT Dot cap), `chat-512` (500,000,000 under 512,000,000; products differ), `discord` (24,000,000 under the free 25 MB cap; Nitro is higher and is not this preset), `email` (24,000,000 under a common 25 MB attachment cap), `github-release` (1,900,000,000 under GitHub's 2 GB release-asset limit), and `custom` (the size you type; default remains 19.5 MiB). Each cap sits under the advertised limit. Those limits can change.
 - **Re-send missing parts.** `regenerate_parts` (MCP) and Resend in the window rewrite only the parts verify reports as missing or corrupt, using the original file. Parts that already match are left as they are. Rebuild says which parts are still needed.
