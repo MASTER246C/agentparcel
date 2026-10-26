@@ -1,0 +1,12 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# build.py writes the platform trees, release zips, and checksums here.
+# The published packages are GitHub Release assets, not git files.
+dist/
+
+# Stray copies of the release packages, if they land in the repo root.
+/AgentParcel-*.zip
+/SHA256SUMS.txt

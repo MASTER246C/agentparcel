@@ -1,0 +1,101 @@
+AgentParcel License 1.0
+=======================
+
+Copyright (c) 2026 Chris Kalkowski - https://chriskalkowski.com
+Licensing questions and permissions: https://chriskalkowski.com
+Project site: https://agentparcel.net   (AgentParcel was formerly named ZipSplitter)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of the Software, including for
+commercial purposes, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+1. Notice. The above copyright notice, this permission notice and the Equal Tier
+   Availability condition below shall be included in all copies or substantial portions
+   of the Software, and in every Derivative.
+
+2. Equal Tier Availability. If the Software, a Derivative, or functionality provided by
+   the Software or a Derivative (together, "the Covered Functionality") is offered as
+   part of, or together with, any Product that has more than one Tier, then:
+   (a) the Covered Functionality must be made available on equal terms in every Tier of
+       that Product that has the Prerequisite Capability, including any free Tier that
+       has it;
+   (b) in those Tiers, the Covered Functionality may not be gated, removed, restricted,
+       or reserved for, or used as a reason to buy, a higher-priced or paid Tier. Usage
+       limits applied to it (such as rate limits, quotas, metering or file-size limits)
+       may be no more restrictive than the limits that apply generally to comparable
+       tools, integrations or apps in the same Tier; and
+   (c) once the Covered Functionality is included in any one Tier of a Product, every
+       other Tier of that Product that has the Prerequisite Capability must be allowed to
+       use it.
+   A Tier that lacks the Prerequisite Capability need not receive the Covered
+   Functionality. This exception applies only if the lack of that capability applies
+   generally to comparable tools, integrations or apps in that Tier, and is not a pretext
+   to single out, gate or exclude the Covered Functionality.
+   Example: if a Product offers MCP tool access in its free Tier and its paid Tiers, users
+   of all of those Tiers must be allowed to use the AgentParcel MCP server. A Tier with no
+   MCP or tool access at all need not offer it.
+   Marketing, advertising or describing the Covered Functionality as an included feature
+   of the Product is expressly permitted. Charging for the Product itself is permitted.
+   This condition does not require the Product to have a free Tier, or to add the
+   Prerequisite Capability to a Tier that does not have it.
+
+3. Survival and redistribution. Condition 2 applies to the Software as received and to
+   every modified version and Derivative, however much it has been changed, and to every
+   redistribution, sublicense or sale of the Software or a Derivative. Anyone who
+   distributes the Software or a Derivative must pass these conditions on to the
+   recipients and may not grant them broader rights than this license grants.
+
+4. Termination. If a Product does not comply with Condition 2, the rights granted by this
+   license terminate for that Product (and for whoever offers it) until the
+   non-compliance is cured. The rights are automatically reinstated once the Product
+   complies again. Termination for one Product does not affect other Products that comply.
+
+Definitions
+-----------
+"Product"    means any software, application, website, online or hosted service, API,
+             platform, device, bundle or other offering, whether paid or free, that
+             includes, embeds, calls, hosts or is distributed together with the Software,
+             a Derivative or the Covered Functionality.
+"Tier"       means any plan, tier, edition, level, package, subscription, license class,
+             price level or other variant of a Product that is offered with different
+             features, limits or prices (for example "Free", "Basic", "Pro", "Team",
+             "Enterprise").
+"Prerequisite Capability" means the general capability a Tier needs in order to use the
+             Covered Functionality in the form offered, for example: access to MCP servers,
+             tools, plugins, extensions or integrations (for the AgentParcel MCP server), or
+             the ability to run local apps or scripts (for the AgentParcel desktop apps).
+"Derivative" means any work based on the Software or any part of it, including modified
+             versions, translations into other programming languages, ports, forks, and
+             works that incorporate or link to the Software or a substantial portion of
+             its code or of the Covered Functionality.
+
+Disclaimer
+----------
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+-------------------------------------------------------------------------------------------
+Plain-English summary (not part of the license; the text above is what counts):
+  - You may use, copy, change, share and sell AgentParcel, including commercially.
+    Keep this license and the copyright notice with it.
+  - You may advertise AgentParcel as an included feature of your product.
+  - If your product has several plans or tiers, every tier that can use this kind of
+    tool must get AgentParcel on equal terms, free tier included. For the MCP server
+    that means every tier with MCP/tool access; for the apps, every tier that can run
+    local apps or scripts. You can't make it a "Pro only" or paid-upgrade feature.
+  - A tier that can't use any comparable tools (e.g. no MCP access at all) doesn't have
+    to get it, as long as that isn't just a way to single out AgentParcel.
+  - Any usage limits on AgentParcel can't be stricter than the limits on comparable
+    tools in the same tier.
+  - These rules also apply to modified versions and to anyone you pass it on to.
+  - There is no warranty.
+  - Questions or other permissions: https://chriskalkowski.com
+  - AgentParcel is source-available. It is not OSI-approved "open source", because of
+    the tier condition.

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=AgentParcel
+Comment=Split a zip into smaller zips, or rebuild it from the parts
+# Edit the path below to where you put the AgentParcel folder, then copy this file to
+# ~/.local/share/applications/ (menu) or your Desktop (and mark it "Allow Launching").
+Exec=/home/YOUR-USER-NAME/AgentParcel/agentparcel.sh %F
+Icon=/home/YOUR-USER-NAME/AgentParcel/agentparcel.png
+Terminal=false
+Categories=Utility;Archiving;
+MimeType=application/zip;

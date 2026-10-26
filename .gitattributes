@@ -1,0 +1,7 @@
+# Icons and screenshots must stay byte-for-byte.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.icns binary
+*.zip binary

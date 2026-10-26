@@ -1,1 +1,228 @@
-# agentparcel
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="src/assets/agentparcel-wordmark.png">
+    <img alt="AgentParcel" src="src/assets/agentparcel-wordmark-black.png" width="560">
+  </picture>
+</p>
+
+<p align="center">
+  Split a large file into parts an AI agent will accept, then rebuild it with SHA-256 checks.<br>
+  <a href="https://agentparcel.net">agentparcel.net</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/MASTER246C/agentparcel/releases">Downloads</a>
+  &nbsp;·&nbsp;
+  <a href="https://chriskalkowski.com">chriskalkowski.com</a>
+</p>
+
+**AgentParcel** lets AI agents hand off large files to other agents and cloud agents that enforce strict per-file upload limits. It splits a zip or a folder into size-capped parts, stores a SHA-256 for every file, and rebuilds the original on the other side. Parts made on Windows, macOS, and Linux rebuild on any of the three.
+
+It ships three ways:
+
+- **Apps** for Windows, macOS, and Linux: a window, plus a command line.
+- A **stdio MCP server** (Python standard library only) with tools `inspect`, `split_zip`, `split_files`, `rebuild`, and `make_apps_bundle`.
+- A **rebuild kit**. With "Include AgentParcel apps" left on, the split folder also gets `AgentParcel-apps.zip`: the Windows, Mac, and Linux programs, a short "how to rebuild" note, and the license. Send it with the parts so the receiving machine has the program.
+
+The default cap is **19.5 MiB** per part (19.5 × 1024 × 1024 = 20,447,232 bytes). When an upload limit is quoted in decimal megabytes — a "20 MB" cap that means 20,000,000 bytes — use 19 MB, or pass an exact `max_bytes`. Every part is an ordinary zip and opens on its own. Rebuild verifies each file's size and SHA-256, and it names any missing part before it writes anything.
+
+<p align="center">
+  <img alt="The AgentParcel window: Split a zip, and Rebuild from parts, with the neon icon in the title bar" src="tk-window-agentparcel-icon.png" width="720">
+</p>
+
+## Why it exists
+
+> I made AgentParcel with Grok Bot because ChatGPT Dot has a 20 MB file limit, other chats have a 512 MB limit, and so on. This is how I hand a large file to another agent, or to a cloud agent, when the chat will not take the whole thing.
+>
+> — Chris Kalkowski
+
+## Downloads
+
+Get the tested packages from the [Releases](https://github.com/MASTER246C/agentparcel/releases) page. Current release: **[AgentParcel 3.3.1](https://github.com/MASTER246C/agentparcel/releases/tag/v3.3.1)**.
+
+| Package | Platform |
+|---|---|
+| [AgentParcel-3.3.1-windows.zip](https://github.com/MASTER246C/agentparcel/releases/download/v3.3.1/AgentParcel-3.3.1-windows.zip) | Windows 10/11. The app is PowerShell 5.1, which Windows already includes. Python is only for the MCP server. |
+| [AgentParcel-3.3.1-linux.zip](https://github.com/MASTER246C/agentparcel/releases/download/v3.3.1/AgentParcel-3.3.1-linux.zip) | Linux with Python 3.9+ (3.15 recommended). The window needs Tk; without it the app runs in text mode. |
+| [AgentParcel-3.3.1-macos.zip](https://github.com/MASTER246C/agentparcel/releases/download/v3.3.1/AgentParcel-3.3.1-macos.zip) | macOS 11+ with Python 3.9+. **This build has not been tested on real Mac hardware yet.** |
+| [SHA256SUMS.txt](https://github.com/MASTER246C/agentparcel/releases/download/v3.3.1/SHA256SUMS.txt) | Checksums for the three zips. |
+
+```text
+621116f5af753bba6dfe15b30223ae57db79a6dd7e30200ef53fe769978650f4  AgentParcel-3.3.1-windows.zip
+69768d6df417807141c8201e53a3766420f9a9631829b202b7c3c5be8734c48c  AgentParcel-3.3.1-linux.zip
+9462420a598604d4f31769a5fc8173bfa1c7ec352468646e899151bb46d82a88  AgentParcel-3.3.1-macos.zip
+```
+
+Check a download with `sha256sum -c SHA256SUMS.txt` (Linux), `shasum -a 256 -c SHA256SUMS.txt` (macOS), or `Get-FileHash .\AgentParcel-3.3.1-windows.zip` (Windows PowerShell).
+
+## Quick start
+
+Extract the zip first. Do not run the app from inside the archive.
+
+### Windows
+
+1. Double-click `AgentParcel.bat`.
+2. **Split**: choose a `.zip`, set the size limit, and click Split. Parts go to `<name>_split\`. Leave "Include AgentParcel apps" ticked when the receiver needs the program.
+3. **Rebuild**: choose the parts folder, or any one part, and click Rebuild.
+
+If Windows shows "Windows protected your PC", click **More info**, then **Run anyway**. These are plain text scripts.
+
+```bat
+powershell -ExecutionPolicy Bypass -File AgentParcel.ps1 -NoGui -LimitMB 19.5 "C:\path\big.zip"
+powershell -ExecutionPolicy Bypass -File AgentParcel.ps1 -Join "C:\path\big_split" -OutputDir "C:\out"
+```
+
+You can also drag a zip or a part onto `AgentParcel.bat`. For the MCP server, double-click `Install-Python-for-AgentParcel.bat`. It installs Python 3.15 for your user (no admin), smoke-tests the server, and writes `MCP-config-snippets.txt` with your real paths. It does not edit agent configs.
+
+### Linux
+
+```sh
+unzip AgentParcel-3.3.1-linux.zip && cd AgentParcel-3.3.1-linux
+./install-deps.sh          # python3 and Tk, via apt/dnf/yum/pacman/zypper; it asks before sudo
+./agentparcel.sh           # opens the window
+```
+
+If a script is not executable (it was copied through Windows, for example): `chmod +x *.sh *.py mcp/*.py`.
+
+```sh
+python3 agentparcel.py --no-gui --limit-mb 19.5 /path/big.zip
+python3 agentparcel.py --join /path/big_split --output-dir /tmp/out
+```
+
+`agentparcel.desktop` is an optional menu entry. Edit its `Exec=` path, then copy it to `~/.local/share/applications/`.
+
+### macOS
+
+This package has not been run on a real Mac yet. It is the same Python program as the tested Linux release. Finder and Gatekeeper prompts, the Tk window, and `install-python-macos.sh` still need a pass on Mac hardware. `TESTING-CHECKLIST.md` inside the zip is the list to work through.
+
+1. Double-click the zip in Finder and move the folder somewhere such as Documents.
+2. In Terminal:
+
+```sh
+cd ~/Documents/AgentParcel-3.3.1-macos
+xattr -dr com.apple.quarantine .     # optional: skips the "unidentified developer" prompts
+./install-python-macos.sh --check    # or without --check, to install Python 3.15
+```
+
+3. Double-click `AgentParcel.command`. The first time, macOS may block it: right-click, **Open**, then **Open**. If it says permission denied: `chmod +x AgentParcel.command agentparcel.py mcp/*.py`.
+
+Use Python from python.org (`/usr/local/bin/python3`) or Homebrew (`/opt/homebrew/bin/python3` on Apple silicon). Apple's `/usr/bin/python3` stub is the wrong one, and its Tk can look broken.
+
+```sh
+python3 agentparcel.py --no-gui --limit-mb 19.5 ~/Downloads/big.zip
+python3 agentparcel.py --join ~/Downloads/big_split --output-dir ~/Desktop
+```
+
+## MCP server
+
+`mcp/agentparcel_mcp.py` speaks [Model Context Protocol](https://modelcontextprotocol.io) over stdio. It needs Python 3.9 or newer (3.15 recommended; 3.11 or newer for archives over 4 GB) and the `agentparcel.py` engine in the same folder. No extra packages.
+
+| Tool | What it does |
+|---|---|
+| `inspect` | Read-only. Sizes, entry count, estimated parts. For a part: set id, part n of N, and which parts are missing. |
+| `split_zip` | Split a `.zip` into `<name>_part01.zip`, `_part02.zip`, … each at most `max_mb`. |
+| `split_files` | Zip files and folders, then split them, in one step. |
+| `rebuild` | Rebuild the original from a folder, one part, or a list of parts. SHA-256 checked. `extract=true` also unpacks it. |
+| `make_apps_bundle` | Write `AgentParcel-apps.zip` for a person on the other side. |
+
+Paths must be absolute. The server never overwrites or deletes a file; a name that is taken gets ` (2)`. An agent receives the apps bundle only when it passes `include_apps=true`.
+
+Optional sandbox: set `AGENTPARCEL_MCP_ROOTS` to the folders the server may read and write (`;` on Windows, `:` on Mac and Linux). The old name `ZIPSPLITTER_MCP_ROOTS` still works when the new one is unset. Remove `env` from a snippet to allow every path.
+
+Big splits can take minutes. Codex CLI's `tool_timeout_sec` defaults to 60; the snippet below sets 1800. For Claude Code, set `MCP_TOOL_TIMEOUT=1800000` (milliseconds) before starting it.
+
+Each release zip has `mcp/README-mcp.txt` with snippets filled in for that platform. Replace `YOU` with your home folder, and on Windows prefer the full path of a real `python.exe` (not the Microsoft Store shortcut). `Install-Python-for-AgentParcel.bat` writes those paths for you.
+
+**Cursor** — `~/.cursor/mcp.json`, or `<project>/.cursor/mcp.json`. On Windows the file is `%USERPROFILE%\.cursor\mcp.json`.
+
+```json
+{
+  "mcpServers": {
+    "agentparcel": {
+      "command": "/usr/bin/python3",
+      "args": ["/home/YOU/AgentParcel-3.3.1-linux/mcp/agentparcel_mcp.py"],
+      "env": { "AGENTPARCEL_MCP_ROOTS": "/home/YOU" }
+    }
+  }
+}
+```
+
+macOS uses `/usr/local/bin/python3` (python.org) or `/opt/homebrew/bin/python3` (Homebrew), and a path under `/Users/YOU/AgentParcel-3.3.1-macos/mcp/`. Windows uses the Python 3.15 `python.exe` and a path such as `C:\\Users\\YOU\\AgentParcel-3.3.1-windows\\mcp\\agentparcel_mcp.py`.
+
+**Claude Desktop** — merge the same `mcpServers` object into the config, then restart the app.
+
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Linux: there is no official Claude Desktop build. Use Claude Code, Cursor, or Codex CLI.
+
+**Claude Code** (once, for every project):
+
+```sh
+claude mcp add agentparcel --scope user --env AGENTPARCEL_MCP_ROOTS="$HOME" -- \
+  /usr/bin/python3 "$HOME/AgentParcel-3.3.1-linux/mcp/agentparcel_mcp.py"
+```
+
+**Codex CLI** — `~/.codex/config.toml` (on Windows, `%USERPROFILE%\.codex\config.toml`):
+
+```toml
+[mcp_servers.agentparcel]
+command = "/usr/bin/python3"
+args = ["/home/YOU/AgentParcel-3.3.1-linux/mcp/agentparcel_mcp.py"]
+env = { AGENTPARCEL_MCP_ROOTS = "/home/YOU" }
+startup_timeout_sec = 20
+tool_timeout_sec = 1800
+```
+
+Try the server by hand:
+
+```sh
+python3 mcp/agentparcel_mcp.py --version
+python3 mcp/agentparcel_mcp.py --list-tools
+```
+
+## Formerly ZipSplitter
+
+AgentParcel is the new name of ZipSplitter (the rename is version 3.3.1). The part format is unchanged, and the on-disk `_zipsplitter_*` label files are kept on purpose:
+
+- AgentParcel rebuilds every ZipSplitter part set, and it ignores a `ZipSplitter-apps.zip` that is sitting with the parts.
+- ZipSplitter 3.x rebuilds AgentParcel parts, and it ignores `AgentParcel-apps.zip`.
+
+The MCP server is now named `agentparcel` (`agentparcel_mcp.py`). `AGENTPARCEL_MCP_ROOTS` replaces `ZIPSPLITTER_MCP_ROOTS`; the old variable still works. Point your agent config at the new script.
+
+## From this repository
+
+| Path | What it is |
+|---|---|
+| `src/` | The programs: `AgentParcel.core.ps1`, `agentparcel.core.py`, `agentparcel_mcp.py`, launchers, and the docs `build.py` packs into each release. |
+| `src/assets/` | Neon icon (PNG, `.ico`, `.icns`) and wordmark. |
+| `src/release/` | Per-platform READMEs, install helpers, license, changelog, and release notes. `@@ZS_VERSION@@` is filled in at build time. |
+| `build.py` | Builds the three platform packages into `dist/` (gitignored). |
+| `make_assets.py` | Regenerates `src/assets/` from the neon source images. |
+| `tk-window-agentparcel-icon.png` | Screenshot of the window. |
+| `LICENSE.txt` | AgentParcel License 1.0. |
+| `CHANGELOG.md` | History, including the ZipSplitter years. |
+
+```sh
+python3 build.py
+```
+
+`dist/` is a local build. The zips attached to the GitHub Release are the tested packages; a fresh run of `build.py` is not byte-for-byte identical, because the packager stamps the current time. History is in [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+AgentParcel License 1.0 ([LICENSE.txt](LICENSE.txt)). Copyright (c) 2026 Chris Kalkowski.
+
+This is **source-available**. It is not OSI-approved open source, because of the Equal Tier Availability rule.
+
+In plain English:
+
+- You may use, copy, modify, share, and sell it, including commercially. Keep the license and the copyright notice with it.
+- You may market it as an included feature. Charging for your own product is fine.
+- If a product with several plans or tiers includes AgentParcel, every tier that can use that kind of tool must get it on equal terms, free tier included. For the MCP server that means every tier with MCP or tool access. For the apps, every tier that can run local apps or scripts. It cannot be reserved for a higher or paid tier. Usage limits on it cannot be stricter than the limits on comparable tools in that same tier.
+- A tier with no such access at all does not have to get it, as long as that gap is general and is not a way to single out AgentParcel.
+- There is no warranty.
+
+Licensing questions and other permissions: [chriskalkowski.com](https://chriskalkowski.com).
+
+## Contact
+
+- Project site: [https://agentparcel.net](https://agentparcel.net)
+- Chris Kalkowski: [https://chriskalkowski.com](https://chriskalkowski.com)

@@ -1,0 +1,33 @@
+HOW TO REBUILD THE ORIGINAL ZIP
+===============================
+You received a big zip as several smaller ones (<name>_part01.zip, _part02.zip, ...)
+plus this AgentParcel-apps.zip. Put all the part zips in one folder first.
+(Each part also opens on its own if you only need a few files.)
+
+WINDOWS
+  1. Open the "Windows" folder from this zip and copy it somewhere (e.g. your Desktop).
+  2. Double-click AgentParcel.bat.
+  3. Go to "Rebuild from parts", drag in the folder with the parts (or any one part),
+     and click Rebuild. You get <name>_rebuilt.zip next to the parts.
+
+MAC
+  1. Copy the "mac" folder somewhere, e.g. Documents.
+  2. Double-click AgentParcel.command. The first time macOS may block it:
+     right-click it > Open > Open. (Needs Python 3.9+ from https://www.python.org)
+  3. "Rebuild from parts" > Add folder... (or Add parts...) > Rebuild.
+
+LINUX
+  1. Copy the "linux" folder somewhere.
+  2. In a terminal in that folder:  ./agentparcel.sh
+     (needs python3 and python3-tk;  or without a window:
+      python3 agentparcel.py --join /path/to/the/parts/folder )
+  3. "Rebuild from parts" > Add folder... > Rebuild.
+
+AI AGENTS / SCRIPTS
+  The "mcp" folder has an MCP server (agentparcel_mcp.py, Python 3.9+) so an AI agent can call
+  rebuild / split_zip / split_files / inspect as tools. Setup snippets: mcp/README.txt.
+  Windows without Python: run Windows\Install-Python-for-AgentParcel.bat (Python 3.15, no admin).
+  Without an agent:  python3 agentparcel.py --join /path/to/the/parts/folder
+
+Every file is checked (SHA-256) while rebuilding. If a part is missing, AgentParcel
+tells you exactly which part number to ask for.
