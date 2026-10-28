@@ -38,6 +38,9 @@ def run_ps(args):
 
 
 def main():
+    if shutil.which("pwsh") is None:
+        print("SKIP test_351.py: pwsh is not installed")
+        return 0
     failures = []
 
     def check(name, cond, detail=""):

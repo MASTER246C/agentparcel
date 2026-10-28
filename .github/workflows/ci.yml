@@ -1,0 +1,99 @@
+# Tests for the engines users actually run.
+# Windows PowerShell 5.1 is the Windows app. pwsh is PowerShell 7.
+# There is no tag or release workflow in this repo. This workflow is reusable
+# (workflow_call) so a release workflow can gate on it. A push of a tag runs
+# these jobs too, because `push` with no branch or tag filter covers both.
+name: CI
+
+on:
+  pull_request:
+  push:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  # One windows-latest job, two shells. `shell:` cannot read `matrix` (GitHub
+  # rejects that workflow), so the shells are written out. Later steps use
+  # always() so a 5.1 failure does not hide the pwsh result.
+  windows-powershell:
+    name: windows-latest / PowerShell 5.1 and pwsh
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Windows PowerShell 5.1 version
+        shell: powershell
+        run: |
+          $version = $PSVersionTable.PSVersion
+          Write-Output $version
+          Write-Output $PSVersionTable.PSEdition
+          if ($version.Major -ne 5) {
+            throw "Expected Windows PowerShell 5.1, got $version"
+          }
+
+      - name: tests/test_351.ps1 on Windows PowerShell 5.1
+        shell: powershell
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/test_351.ps1
+
+      - name: PowerShell 7 version
+        if: always()
+        shell: pwsh
+        run: |
+          $version = $PSVersionTable.PSVersion
+          Write-Output $version
+          Write-Output $PSVersionTable.PSEdition
+          if ($version.Major -lt 7) {
+            throw "Expected PowerShell 7 or newer, got $version"
+          }
+
+      - name: tests/test_351.ps1 on pwsh
+        if: always()
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File tests/test_351.ps1
+
+      - uses: actions/setup-python@v5
+        if: always()
+        with:
+          python-version: "3.13"
+
+      - name: Golden cross-engine fixtures on Windows PowerShell 5.1
+        if: always()
+        shell: powershell
+        run: python tests/test_golden.py --powershell powershell.exe --require-powershell
+
+      - name: Golden cross-engine fixtures on pwsh
+        if: always()
+        shell: pwsh
+        run: python tests/test_golden.py --powershell pwsh --require-powershell
+
+      - name: tests/test_351.py
+        if: always()
+        shell: pwsh
+        run: python tests/test_351.py
+
+  python:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install the crypto extra
+        run: python -m pip install "cryptography>=42"
+
+      - name: Python tests
+        run: |
+          python tests/test_34.py
+          python tests/test_35.py
+          python tests/test_351.py
+          python tests/test_golden.py

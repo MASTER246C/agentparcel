@@ -961,7 +961,11 @@ function Invoke-ZsRegeneratePlain {
 }
 
 function Invoke-ZsVerifyZip([string[]]$InputPaths) {
-    $files = @(Find-ZsPartSet $InputPaths)
+    # Find-ZsPartSet returns one array on purpose. Wrapping it in @() nests that
+    # array, and a .NET call then joins every part path into one string. A set
+    # with more than one zip part fails verify as "not a readable zip".
+    $files = Find-ZsPartSet $InputPaths
+    if ($null -eq $files) { $files = @() }
     if ($files.Count -eq 0) { throw 'No parts found.' }
     $opened = [System.Collections.Generic.List[object]]::new()
     try {

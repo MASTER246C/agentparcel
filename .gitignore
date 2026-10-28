@@ -12,3 +12,6 @@ dist/
 # Stray copies of the release packages, if they land in the repo root.
 /AgentParcel-*.zip
 /SHA256SUMS.txt
+
+# Generated from the repo-root CHANGELOG.md by build.py. Edit that file only.
+/src/release/CHANGELOG.md

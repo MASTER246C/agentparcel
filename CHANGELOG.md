@@ -2,11 +2,7 @@
 
 Project site: https://agentparcel.net.
 
-ZipSplitter was our internal working name during development. Before the public release we researched it, found another existing project already using that name, and switched to AgentParcel.
-
-AgentParcel is an independent project. It is not affiliated with, endorsed by, or derived from any other project named ZipSplitter, and it does not use any of that project's code. ZipSplitter was only our internal working name; all AgentParcel code was written from scratch for this project.
-
-Entries before 3.3.1 still use that working name for the files from our own development builds. The `_zipsplitter_*` marker files and the `ZIPSPLITTER_*` environment-variable fallbacks come from those builds, not from any other project named ZipSplitter. They remain only for backward compatibility.
+Entries before 3.3.1 use the internal working name. See [About the name](README.md#about-the-name).
 
 ## 3.5.1 - 2026-10-26
 - **Windows zip split.** Splitting a zip failed with "Argument types do not match" and the output folder was removed, so it looked like no parts were written. The finished part list was passed through `@()`. Windows PowerShell 5.1 and PowerShell 7 throw that error for a `List[object]` made with `New-Object`. Unpack-inner and include-apps both stay on in the fix. 3.3.1 was not affected.
@@ -30,16 +26,16 @@ Entries before 3.3.1 still use that working name for the files from our own deve
 - Zip parts are unchanged: `_zipsplitter_part.json` and `_zipsplitter_manifest.json` are still the format, and `ZIPSPLITTER_*` environment-variable fallbacks still work. A 3.3.x set still rebuilds. New sidecars (`_agentparcel_bytes.json`, `_agentparcel_zipset.json`) are ignored by 3.3.x readers.
 
 ## 3.3.1 - 2026-10-25
-- **Public release name is AgentParcel.** ZipSplitter was only our internal working name. Before release we researched it, found another existing project already using that name, and switched. AgentParcel is not affiliated with, endorsed by, or derived from that project, and it does not use any of that project's code. All AgentParcel code was written from scratch for this project.
+- **Public release name is AgentParcel.** See [About the name](README.md#about-the-name).
   - Files: AgentParcel.ps1, AgentParcel.bat, agentparcel.py, agentparcel_mcp.py, AgentParcel.command,
     agentparcel.sh, agentparcel.desktop, Install-Python-for-AgentParcel.bat.
   - Release zips are AgentParcel-<ver>-<platform>.zip, and the apps bundle is AgentParcel-apps.zip.
   - The MCP server name is `agentparcel`. The env vars are AGENTPARCEL_MCP_ROOTS / AGENTPARCEL_PY.
-    ZIPSPLITTER_MCP_ROOTS / ZIPSPLITTER_PY remain as fallbacks from our own development builds, for backward compatibility only. They do not come from any other project named ZipSplitter.
+    ZIPSPLITTER_MCP_ROOTS / ZIPSPLITTER_PY remain as fallbacks from our own development builds, for backward compatibility only.
   - The license for the public release is AgentParcel License 1.0, with a refined Equal Tier Availability clause: it covers
     every tier with the Prerequisite Capability (e.g. MCP/tool access), and usage limits may be no stricter
     than for comparable tools.
-- The part format is unchanged. The `_zipsplitter_*` label files are kept only for backward compatibility with our own development builds, not with any other project named ZipSplitter. Parts from those builds still rebuild, and those builds still rebuild AgentParcel parts. AgentParcel ignores a development `ZipSplitter-apps.zip`, and those older builds ignore `AgentParcel-apps.zip`.
+- The part format is unchanged. The `_zipsplitter_*` label files are kept for backward compatibility with our own development builds. Parts from those builds still rebuild, and those builds still rebuild AgentParcel parts. AgentParcel ignores a development `ZipSplitter-apps.zip`, and those older builds ignore `AgentParcel-apps.zip`. See [About the name](README.md#about-the-name).
 - AgentParcel-apps.zip (the bundle written next to the parts) now includes LICENSE.txt, from both the
   Windows and the Mac/Linux program.
 - New neon AgentParcel icon and wordmark.

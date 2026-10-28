@@ -93,15 +93,9 @@ ZIP PART SIDECAR
 ==========================================================================================
 MANIFEST FORMAT (version 1) - for other implementations (macOS / Linux builds)
 ==========================================================================================
-ZipSplitter was only our internal working name during development. AgentParcel is an
-independent project. It is not affiliated with, endorsed by, or derived from any other
-project named ZipSplitter, and it does not use any of that project's code. All AgentParcel
-code was written from scratch for this project. Before release we researched the working
-name, found another existing project already using it, and switched to AgentParcel.
+About the name: https://github.com/MASTER246C/agentparcel/blob/main/README.md#about-the-name
 The file names (_zipsplitter_part.json, _zipsplitter_manifest.json, _zipsplitter_apps.json)
-and the "zipsplitter-*" format ids below come from our own development builds, not from
-that other project. They are kept unchanged on purpose, only for backward compatibility:
-those builds can rebuild AgentParcel parts, and AgentParcel rebuilds parts from those builds.
+and the "zipsplitter-*" format ids below stay so older part sets still rebuild.
 All JSON files are UTF-8; AgentParcel writes pure ASCII (non-ASCII chars as \uXXXX escapes).
 All paths are zip entry names exactly as stored (normally "/" separated, dirs end in "/").
 Times are the zip entry's local wall-clock time, "yyyy-MM-dd HH:mm:ss" (no time zone).
