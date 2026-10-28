@@ -1,0 +1,41 @@
+{
+  "format": "agentparcel-bytes",
+  "version": 1,
+  "originalName": "sample.bin",
+  "originalSize": 100000,
+  "sha256": "b7f60fea35362c703360793b4c18c47b38501745ead23b92f4b4d0265d046c80",
+  "limitBytes": 32000,
+  "partCount": 4,
+  "setId": "e0005d6ad6364dbe8b5a4e9916bfebcd",
+  "tool": "agentparcel.py 3.5.1",
+  "parts": [
+    {
+      "part": 1,
+      "name": "sample.bin_part01",
+      "size": 32000,
+      "sha256": "a5f7a75880393472e7be79a254377a37f6f3d99a0b02badf8e76bd9a564ca7e8",
+      "offset": 0
+    },
+    {
+      "part": 2,
+      "name": "sample.bin_part02",
+      "size": 32000,
+      "sha256": "49cfb83e52da48efe32eb2fb54b33129913e0296000158a0b8eb65332563f394",
+      "offset": 32000
+    },
+    {
+      "part": 3,
+      "name": "sample.bin_part03",
+      "size": 32000,
+      "sha256": "8064745fc0af235cdb2d789481de406eb3f28707820784334f1fa303268c721a",
+      "offset": 64000
+    },
+    {
+      "part": 4,
+      "name": "sample.bin_part04",
+      "size": 4000,
+      "sha256": "6f7289ddd69b2a0502806d2e572ac3f9cfaef3d4545b5c690b971fe20a7b23cb",
+      "offset": 96000
+    }
+  ]
+}

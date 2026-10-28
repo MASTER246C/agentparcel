@@ -1,0 +1,18 @@
+Some files were too large for a single 0.19 MB zip and were cut into pieces.
+AgentParcel ("Rebuild from parts") joins them automatically. To do it by hand:
+
+This file was too large for one zip part, so it was cut into raw pieces:
+  notes/readme.txt
+Pieces: 7  (stored in notes_part02.zip .. notes_part08.zip)
+
+Easiest: open AgentParcel, choose "Rebuild from parts" and drop the parts in.
+By hand: extract ALL the part zips into the same folder, then in that folder run
+
+  macOS / Linux (Terminal):
+    cat notes/readme.txt.001 notes/readme.txt.002 notes/readme.txt.003 notes/readme.txt.004 notes/readme.txt.005 notes/readme.txt.006 notes/readme.txt.007 > notes/readme.txt
+
+  Windows (Command Prompt):
+    copy /b "notes\readme.txt.001"+"notes\readme.txt.002"+"notes\readme.txt.003"+"notes\readme.txt.004"+"notes\readme.txt.005"+"notes\readme.txt.006"+"notes\readme.txt.007" "notes\readme.txt"
+
+After checking the rebuilt file, the .### piece files can be deleted.
+----------------------------------------

@@ -1,0 +1,65 @@
+{
+  "format": "agentparcel-zipset",
+  "version": 1,
+  "originalName": "notes.zip",
+  "partCount": 9,
+  "limitBytes": 200000,
+  "setId": "a931d9f4c80646448a86078acefbb3fb",
+  "tool": "agentparcel.py 3.5.1",
+  "parts": [
+    {
+      "part": 1,
+      "name": "notes_part01.zip",
+      "size": 817,
+      "sha256": "24da3ccbbb48ea91336d604eb73248026dd6ff666ecb5d094a4b685cfb8bb481"
+    },
+    {
+      "part": 2,
+      "name": "notes_part02.zip",
+      "size": 65951,
+      "sha256": "21467933bd31061d50ab7a2034b03e0ce7e6346092d9bd46ef4c6a05f2d11b07"
+    },
+    {
+      "part": 3,
+      "name": "notes_part03.zip",
+      "size": 65951,
+      "sha256": "24cbbcc54dcc7d1b9064a2cd6fa83078316ff0aea7608196d7dfc724dab01a7d"
+    },
+    {
+      "part": 4,
+      "name": "notes_part04.zip",
+      "size": 65951,
+      "sha256": "110639e63fba88484c2dd7fa13724c68eb70967ab58287ad3149fae1ab17dda7"
+    },
+    {
+      "part": 5,
+      "name": "notes_part05.zip",
+      "size": 65951,
+      "sha256": "1c5ffc496c490c98387c4ae1488e901e205175111740cf2fc57fc85d42310dab"
+    },
+    {
+      "part": 6,
+      "name": "notes_part06.zip",
+      "size": 65951,
+      "sha256": "c12d22485147d35681ce597307993cbdced78dfeb1f4f77c54c706569bd10ebe"
+    },
+    {
+      "part": 7,
+      "name": "notes_part07.zip",
+      "size": 65951,
+      "sha256": "27219918a5f2cf3d52c4e0be2ebe2e74be6d3bc81a7469d98cf4d024a8c89500"
+    },
+    {
+      "part": 8,
+      "name": "notes_part08.zip",
+      "size": 57685,
+      "sha256": "068aeeda742b17ae6b0b06b66f24becd0f4fdbc737a7ac54c3a3b19ea120d7bc"
+    },
+    {
+      "part": 9,
+      "name": "notes_part09.zip",
+      "size": 929,
+      "sha256": "1ffef002d6d61c987d06ac6df29000dd2095caeb5efb0a53163fa7d275e5559d"
+    }
+  ]
+}

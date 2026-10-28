@@ -5,3 +5,6 @@
 *.ico binary
 *.icns binary
 *.zip binary
+
+# Part bytes and manifests must not be rewritten on a Windows checkout.
+tests/golden/** binary
