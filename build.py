@@ -9,6 +9,9 @@ Mac and Linux versions always carry the same version and the same embedded paylo
   src/AgentParcel.bat, Install-Python-for-AgentParcel.bat, README-windows.txt, AgentParcel.command, agentparcel.sh,
   agentparcel.desktop, README-mac-linux.txt, HOW-TO-REBUILD.txt
 
+  CHANGELOG.md at the repo root is the only changelog. This script copies it to
+  src/release/CHANGELOG.md before packing the release zips.
+
 Payload = base64( raw-deflate( JSON {"format":"zipsplitter-payload","version":..,"files":{name: text}} ) ).
 It contains both program sources (with EMPTY payload blocks) and all other release files, and
 is embedded identically into both programs. Each program can therefore regenerate the complete
@@ -21,6 +24,19 @@ import base64, hashlib, re, importlib.util, json, os, shutil, sys, time, zipfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "src")
 DIST = os.path.join(HERE, "dist")
+CHANGELOG_SRC = os.path.join(HERE, "CHANGELOG.md")
+CHANGELOG_RELEASE = os.path.join(SRC, "release", "CHANGELOG.md")
+
+
+def sync_changelog():
+    """Copy the repo-root changelog into src/release. The root file is the source of truth."""
+    with open(CHANGELOG_SRC, "rb") as f:
+        text = f.read().decode("ascii").replace("\r\n", "\n")
+    if not text.endswith("\n"):
+        text += "\n"
+    os.makedirs(os.path.dirname(CHANGELOG_RELEASE), exist_ok=True)
+    with open(CHANGELOG_RELEASE, "w", newline="\n") as f:
+        f.write(text)
 
 
 def read(name):
@@ -202,6 +218,7 @@ def main():
     ap.add_argument("--pc-root", help="Windows folder for AGENTPARCEL_MCP_ROOTS")
     ap.add_argument("--pc-note", default="", help="extra note at the top of the Windows section")
     opts = ap.parse_args()
+    sync_changelog()
     version = read("VERSION").strip()
     sub = lambda t: t.replace("@@ZS_VERSION@@", version)
     ps_core = sub(read("AgentParcel.core.ps1"))
