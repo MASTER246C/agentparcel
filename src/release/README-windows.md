@@ -86,8 +86,5 @@ Project site: https://agentparcel.net
 Licensing questions and permissions: https://chriskalkowski.com
 
 ## About the name
-ZipSplitter was our internal working name during development. Before release we researched it, found another existing project already using that name, and switched to AgentParcel for the public release.
 
-AgentParcel is an independent project. It is not affiliated with, endorsed by, or derived from any other project named ZipSplitter, and it does not use any of that project's code. ZipSplitter was only our internal working name; all AgentParcel code was written from scratch for this project.
-
-Leftover `_zipsplitter_*` marker files and `ZIPSPLITTER_*` environment-variable fallbacks come from our own development builds, not from that other project. They remain only for backward compatibility (`ZIPSPLITTER_MCP_ROOTS` still works when `AGENTPARCEL_MCP_ROOTS` is unset). Parts from those builds still rebuild, and those builds still rebuild AgentParcel parts. The MCP server to configure is `agentparcel_mcp.py` (server name `agentparcel`).
+See [About the name](https://github.com/MASTER246C/agentparcel/blob/main/README.md#about-the-name).

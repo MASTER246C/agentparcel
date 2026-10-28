@@ -3,14 +3,7 @@ AgentParcel for macOS and Linux  (version @@ZS_VERSION@@)
 Project site: https://agentparcel.net
 
 About the name
-  ZipSplitter was only our internal working name during development. Before release we
-  researched it, found another existing project already using that name, and switched to
-  AgentParcel for the public release. AgentParcel is an independent project. It is not
-  affiliated with, endorsed by, or derived from any other project named ZipSplitter, and
-  it does not use any of that project's code. All AgentParcel code was written from scratch
-  for this project. Leftover _zipsplitter_* marker files and ZIPSPLITTER_* environment-
-  variable fallbacks come from our own development builds, not from that other project.
-  They remain only for backward compatibility.
+  https://github.com/MASTER246C/agentparcel/blob/main/README.md#about-the-name
 
 Same program as the Windows version (AgentParcel.ps1), written in Python 3.
 It also byte-splits any file into numbered parts (exact original, SHA-256), verifies a set
@@ -28,7 +21,7 @@ Files
   agentparcel_mcp.py    MCP server for AI agents (see README-mcp.txt)
 
 Requirements
-  - Python 3.9 or newer (3.11+ recommended for very large archives over 4 GB).
+  - Python 3.9 or newer. Python 3.11+ recommended (needed for >4 GB archives).
   - For the window: Tk support in Python.
       macOS : the python.org installer includes it (https://www.python.org/downloads/macos/).
               Homebrew: brew install python python-tk

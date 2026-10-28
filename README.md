@@ -36,7 +36,7 @@ The default cap is **19.5 MiB** per part (19.5 × 1024 × 1024 = 20,447,232 byte
 3.4.0, still in this release: split any file, verify, `HOW-TO-REBUILD.txt` plus `rebuild.py`, and Stop (Cancelled, and the partial output from that run is removed).
 
 <p align="center">
-  <img alt="The AgentParcel window: Split a zip, and Rebuild from parts, with the neon icon in the title bar" src="tk-window-agentparcel-icon.png" width="720">
+  <img alt="The AgentParcel window: Split a zip, and Rebuild from parts, with the neon icon in the title bar" src="docs/img/tk-window-agentparcel-icon.png" width="720">
 </p>
 
 ## Why it exists
@@ -45,7 +45,7 @@ The default cap is **19.5 MiB** per part (19.5 × 1024 × 1024 = 20,447,232 byte
 >
 > — Chris Kalkowski
 
-During development the working name was ZipSplitter. AgentParcel is an independent project. It is not affiliated with, endorsed by, or derived from any other project named ZipSplitter, and it does not use any of that project's code. See [About the name](#about-the-name).
+See [About the name](#about-the-name).
 
 ## Downloads
 
@@ -54,7 +54,7 @@ Get the tested packages from the [Releases](https://github.com/MASTER246C/agentp
 | Package | Platform |
 |---|---|
 | [AgentParcel-3.5.1-windows.zip](https://github.com/MASTER246C/agentparcel/releases/download/v3.5.1/AgentParcel-3.5.1-windows.zip) | Windows 10/11. The app is PowerShell 5.1, which Windows already includes. Python is only for the MCP server. |
-| [AgentParcel-3.5.1-linux.zip](https://github.com/MASTER246C/agentparcel/releases/download/v3.5.1/AgentParcel-3.5.1-linux.zip) | Linux with Python 3.9+ (3.15 recommended). The window needs Tk; without it the app runs in text mode. |
+| [AgentParcel-3.5.1-linux.zip](https://github.com/MASTER246C/agentparcel/releases/download/v3.5.1/AgentParcel-3.5.1-linux.zip) | Linux with Python 3.9+. Python 3.11+ recommended (needed for >4 GB archives). The window needs Tk; without it the app runs in text mode. |
 | [AgentParcel-3.5.1-macos.zip](https://github.com/MASTER246C/agentparcel/releases/download/v3.5.1/AgentParcel-3.5.1-macos.zip) | macOS 11+ with Python 3.9+. **Community-tested/beta.** Mac users: if you hit an issue or can help test, reach out via chriskalkowski.com. |
 | [SHA256SUMS.txt](https://github.com/MASTER246C/agentparcel/releases/download/v3.5.1/SHA256SUMS.txt) | Checksums for the three zips. |
 
@@ -129,7 +129,7 @@ python3 agentparcel.py --join ~/Downloads/big_split --output-dir ~/Desktop
 
 ## MCP server
 
-`mcp/agentparcel_mcp.py` speaks [Model Context Protocol](https://modelcontextprotocol.io) over stdio. It needs Python 3.9 or newer (3.15 recommended; 3.11 or newer for archives over 4 GB) and the `agentparcel.py` engine in the same folder. No extra packages.
+`mcp/agentparcel_mcp.py` speaks [Model Context Protocol](https://modelcontextprotocol.io) over stdio. It needs Python 3.9 or newer. Python 3.11+ recommended (needed for >4 GB archives). It also needs the `agentparcel.py` engine in the same folder. No extra packages.
 
 | Tool | What it does |
 |---|---|
@@ -228,12 +228,12 @@ Point an agent config at `agentparcel_mcp.py`. The server name in the snippets i
 |---|---|
 | `src/` | The programs: `AgentParcel.core.ps1`, `agentparcel.core.py`, `agentparcel_mcp.py`, launchers, and the docs `build.py` packs into each release. |
 | `src/assets/` | Neon icon (PNG, `.ico`, `.icns`) and wordmark. |
-| `src/release/` | Per-platform READMEs, install helpers, license, changelog, and release notes. `@@ZS_VERSION@@` is filled in at build time. |
-| `build.py` | Builds the three platform packages into `dist/` (gitignored). |
+| `src/release/` | Per-platform READMEs, install helpers, license, and release notes. `@@ZS_VERSION@@` is filled in at build time. |
+| `build.py` | Builds the three platform packages into `dist/` (gitignored). Copies `CHANGELOG.md` to `src/release/CHANGELOG.md`. |
 | `make_assets.py` | Regenerates `src/assets/` from the neon source images. |
-| `tk-window-agentparcel-icon.png` | Screenshot of the window. |
+| `docs/img/tk-window-agentparcel-icon.png` | Screenshot of the window. |
 | `LICENSE.txt` | AgentParcel License 1.0. |
-| `CHANGELOG.md` | History. Entries before 3.3.1 use the internal working name. |
+| `CHANGELOG.md` | History, and the only changelog. Entries before 3.3.1 use the internal working name. See [About the name](#about-the-name). |
 
 ```sh
 python3 build.py

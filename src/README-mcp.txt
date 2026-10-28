@@ -8,7 +8,7 @@ The parts are the same format as the AgentParcel apps for Windows, Mac and Linux
 Files (keep them together in one folder):
   agentparcel_mcp.py   the MCP server (stdio, no extra packages needed)
   agentparcel.py       the AgentParcel engine it uses
-Needs Python 3.9 or newer (3.15 recommended; 3.11+ for archives over 4 GB).
+Needs Python 3.9 or newer. Python 3.11+ recommended (needed for >4 GB archives).
 Windows without Python: Install-Python-for-AgentParcel.bat installs Python 3.15 for your user
 (no admin), smoke-tests this server and writes MCP-config-snippets.txt with the real paths.
 
@@ -43,12 +43,8 @@ OPTIONAL SANDBOX
   Set AGENTPARCEL_MCP_ROOTS to the folders the server may read and write (separate several with
   ";" on Windows, ":" on Mac/Linux). Paths outside are refused. The snippets below allow your
   user folder; remove the "env" part to allow everything. ZIPSPLITTER_MCP_ROOTS still
-  works when AGENTPARCEL_MCP_ROOTS is not set. That fallback comes from our own
-  development builds, not from any other project named ZipSplitter.
-  AgentParcel is an independent project. It is not affiliated with, endorsed by, or
-  derived from any other project named ZipSplitter, and it does not use any of that
-  project's code. ZipSplitter was only our internal working name; all AgentParcel code
-  was written from scratch for this project.
+  works when AGENTPARCEL_MCP_ROOTS is not set. See About the name:
+  https://github.com/MASTER246C/agentparcel/blob/main/README.md#about-the-name
 
 LONG JOBS
   Big splits can take minutes. The server sends progress notifications when the client asks, but

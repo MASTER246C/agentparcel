@@ -2987,7 +2987,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     if sys.version_info < (3, 11):
-        sys.stderr.write("Note: Python %d.%d works, but 3.11+ is recommended for very large (zip64, >4 GB) archives.\n" % sys.version_info[:2])
+        sys.stderr.write("Note: Python %d.%d works. Python 3.11+ recommended (needed for >4 GB archives).\n" % sys.version_info[:2])
 
     try:
         if args.regenerate:
