@@ -1,0 +1,82 @@
+# Tests for the engines users actually run.
+# Windows PowerShell 5.1 is the Windows app. pwsh is PowerShell 7.
+# There is no tag or release workflow in this repo. This workflow is reusable
+# (workflow_call) so a release workflow can gate on it. A push of a tag runs
+# these jobs too, because `push` with no branch or tag filter covers both.
+name: CI
+
+on:
+  pull_request:
+  push:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-powershell:
+    name: windows-latest / ${{ matrix.name }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows PowerShell 5.1
+            shell: powershell
+            exe: powershell.exe
+            major: 5
+          - name: PowerShell 7
+            shell: pwsh
+            exe: pwsh
+            major: 7
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require the PowerShell major version under test
+        shell: ${{ matrix.shell }}
+        run: |
+          $version = $PSVersionTable.PSVersion
+          Write-Output $version
+          Write-Output $PSVersionTable.PSEdition
+          if ($version.Major -ne ${{ matrix.major }}) {
+            throw "Expected PowerShell major ${{ matrix.major }}, got $version"
+          }
+
+      - name: tests/test_351.ps1
+        shell: ${{ matrix.shell }}
+        run: ${{ matrix.exe }} -NoProfile -ExecutionPolicy Bypass -File tests/test_351.ps1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Golden cross-engine fixtures
+        shell: ${{ matrix.shell }}
+        run: python tests/test_golden.py --powershell ${{ matrix.exe }} --require-powershell
+
+      - name: tests/test_351.py
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: python tests/test_351.py
+
+  python:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Python tests
+        run: |
+          python tests/test_34.py
+          python tests/test_35.py
+          python tests/test_351.py
+          python tests/test_golden.py
